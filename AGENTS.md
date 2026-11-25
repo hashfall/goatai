@@ -57,6 +57,9 @@ Artefato de build validado:
 ```
 .dist/firedragon-v13.13.2.linux-x64.tar.xz   139 MB
 sha256: eb5eb12555a518f07fd87c8bc790975068ce7315ed19a273d1b3173b326db65c
+
+.dist/firedragon-v13.13.2.win32-x64.zip      223 MB
+sha256: 7a060ecf14e922a7b0dc81a1727b83a8e085337b4f6d127c298c112520097ba4
 ```
 
 ---
@@ -293,6 +296,48 @@ Empacotamento verificado:
 
 Teste real feito com o binário extraído do `.tar.xz`, perfil temporário, em Wayland/niri:
 o navegador abriu com o painel Goatai fixo à direita e o tema carregado.
+
+### 5.7 Windows (overlay)
+
+Não há cross-compile confiável do Gecko completo a partir do Linux. O Windows foi gerado
+como **overlay** sobre o pacote oficial `win32-x64` da mesma versão:
+
+- Binários nativos, DLLs, instalador e assinatura: do pacote oficial FireDragon 13.13.2.
+- Recursos substituídos: `chrome/firedragon/**`, addons `firedragon-ai`/`firedragon-settings`,
+  `built_in_addons.json` e `defaults/preferences/firedragon.js` dentro de
+  `browser/omni.ja`.
+
+Script reproduzível:
+
+```bash
+python3 scripts/patch-windows-build.py
+# entradas padrão:
+#   .cache/firedragon-v13.13.2.win32-x64.zip
+#   .dist/firedragon-v13.13.2.linux-x64.tar.xz
+# saída:
+#   .dist/firedragon-v13.13.2.win32-x64.zip
+```
+
+Resultado:
+
+```
+.dist/firedragon-v13.13.2.win32-x64.zip   223 MB
+sha256: 7a060ecf14e922a7b0dc81a1727b83a8e085337b4f6d127c298c112520097ba4
+```
+
+Validação feita:
+
+- `unzip -t` no ZIP final sem erros.
+- `built_in_addons.json` contém `firedragon-ai`.
+- `browser.js` contém a injeção da toolbar.
+- `wine firedragon.exe --version` → `Garuda Linux FireDragon 13.13.2`.
+- `wine ... --headless --screenshot` gerou imagem (engine inicia).
+- GUI completa sob Wine crasha na inicialização gráfica (limitação do Wine, não validada
+  em Windows real).
+
+Caveats: é um ZIP portátil **não assinado/oficial**; o instalador `.installer.exe` não foi
+regenerado e o SmartScreen pode avisar. Para um build realmente from-source, use uma
+máquina/runner Windows com o source artifact e os mesmos passos de `mach`.
 
 ---
 
@@ -540,6 +585,9 @@ docker exec goatai-build bash -lc \
 # smoke test do artefato
 tar -xJf .dist/firedragon-v13.13.2.linux-x64.tar.xz -C /tmp/opencode/goatai-run --strip-components=1
 /tmp/opencode/goatai-run/firedragon --version
+
+# Windows (overlay sobre o pacote oficial)
+python3 scripts/patch-windows-build.py
 ```
 
 ---
@@ -550,6 +598,8 @@ tar -xJf .dist/firedragon-v13.13.2.linux-x64.tar.xz -C /tmp/opencode/goatai-run 
 - Sem sincronização de conversa entre janelas.
 - Sem testes automatizados do painel (validação atual é manual/visual).
 - Rotação do `AGENT_TOKEN` é manual (Worker secret + `agents.json` local).
+- Windows: GUI ainda não validada em uma máquina Windows real; o smoke test foi
+  `--version`/headless sob Wine. O instalador `.installer.exe` também não foi regenerado.
 - Branding do navegador inteiro continua FireDragon; apenas o assistente é Goatai.
 
 ---
@@ -634,4 +684,14 @@ tar -xJf .dist/firedragon-v13.13.2.linux-x64.tar.xz -C /tmp/opencode/goatai-run 
 3. O botão alterna `firedragon.ai.panel.open` e sincroniza `checked`/`aria-pressed` com a
    pref; também abre/fecha pelo menu Exibir e Ctrl+Alt+A.
 4. Testado no build: botão aparece à esquerda do hambúrguer e oculta/mostra o painel.
+
+### Windows (2026-11-25)
+
+1. Baixado o pacote oficial `firedragon-v13.13.2.win32-x64.zip` (214 MB).
+2. Criado `scripts/patch-windows-build.py` para sobrepor os recursos do fork no
+   `browser/omni.ja` do pacote oficial.
+3. O script preserva os binários nativos e valida `firedragon-ai` + injeção da toolbar.
+4. Gerado `.dist/firedragon-v13.13.2.win32-x64.zip` (223 MB).
+5. Smoke test sob Wine: `--version` e `--headless --screenshot` funcionam; GUI completa
+   crasha no Wine. Validação visual em Windows real ainda pendente.
 
