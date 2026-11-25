@@ -1,0 +1,27 @@
+#firedragon-ai-panel-box {
+    width: 380px;
+    min-width: 300px;
+    max-width: 75vw;
+    background-color: var(--sidebar-background-color);
+    color: var(--sidebar-text-color);
+    border-inline-start: 1px solid var(--sidebar-border-color);
+}
+
+#firedragon-ai-panel-browser {
+    background-color: var(--sidebar-background-color);
+}
+
+#firedragon-ai-panel-splitter {
+    -moz-user-focus: normal;
+}
+
+#firedragon-ai-panel-splitter:focus-visible {
+    outline: auto;
+}
+
+:root[inFullscreen] #firedragon-ai-panel-box,
+:root[inFullscreen] #firedragon-ai-panel-splitter,
+:root[inDOMFullscreen] #firedragon-ai-panel-box,
+:root[inDOMFullscreen] #firedragon-ai-panel-splitter {
+    display: none;
+}

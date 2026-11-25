@@ -1,4 +1,5 @@
 DIRS += [
+    'ai',
     'notes',
     'qr-code',
     'settings',

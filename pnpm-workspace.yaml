@@ -1,6 +1,7 @@
 packages:
   - '@types/gecko'
   - build
+  - builtin-addons/ai
   - builtin-addons/notes
   - builtin-addons/qr-code
   - builtin-addons/settings

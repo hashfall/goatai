@@ -1,0 +1,28 @@
+{
+  "title": "Goatai",
+  "subtitle": "Agente do navegador",
+  "newChat": "Nova conversa",
+  "close": "Fechar painel",
+  "emptyTitle": "Pergunte qualquer coisa",
+  "emptySubtitle": "Seu agente pode ler a página atual, navegar e agir por você.",
+  "suggestions": {
+    "summarize": "Resuma esta página",
+    "explain": "Explique o que estou vendo",
+    "find": "Encontre algo neste site"
+  },
+  "composer": {
+    "placeholder": "Pergunte ao Goatai…",
+    "send": "Enviar",
+    "stop": "Parar"
+  },
+  "message": {
+    "you": "Você",
+    "assistant": "Goatai"
+  },
+  "status": {
+    "offline": "Não conectado",
+    "online": "Conectado"
+  },
+  "notConfigured": "O agente ainda não está conectado. Adicione seu agente Cloudflare no agents.json do perfil do navegador e envie uma nova mensagem.",
+  "error": "Algo deu errado ao contatar o agente."
+}

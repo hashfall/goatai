@@ -1,4 +1,5 @@
 export const BuiltinAddons = new (class {
+    public readonly ai: WebExtensionPolicy;
     public readonly notes: WebExtensionPolicy;
     public readonly qrCode: WebExtensionPolicy;
     public readonly settings: WebExtensionPolicy;
@@ -8,6 +9,7 @@ export const BuiltinAddons = new (class {
     public readonly workspaces: WebExtensionPolicy;
 
     constructor() {
+        this.ai = this.get('firedragon-ai');
         this.notes = this.get('firedragon-notes');
         this.qrCode = this.get('firedragon-qr-code');
         this.settings = this.get('firedragon-settings');
@@ -23,6 +25,7 @@ export const BuiltinAddons = new (class {
 
     getAll(): WebExtensionPolicy[] {
         return [
+            this.ai,
             this.notes,
             this.qrCode,
             this.settings,

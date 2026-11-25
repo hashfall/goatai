@@ -1,0 +1,28 @@
+{
+  "title": "Goatai",
+  "subtitle": "Browser agent",
+  "newChat": "New chat",
+  "close": "Close panel",
+  "emptyTitle": "Ask anything",
+  "emptySubtitle": "Your agent can read the current page, navigate and act on it for you.",
+  "suggestions": {
+    "summarize": "Summarize this page",
+    "explain": "Explain what I'm looking at",
+    "find": "Find something on this site"
+  },
+  "composer": {
+    "placeholder": "Ask Goatai…",
+    "send": "Send",
+    "stop": "Stop"
+  },
+  "message": {
+    "you": "You",
+    "assistant": "Goatai"
+  },
+  "status": {
+    "offline": "Not connected",
+    "online": "Connected"
+  },
+  "notConfigured": "The agent isn't connected yet. Add your Cloudflare agent to agents.json in your browser profile, then send a new message.",
+  "error": "Something went wrong while contacting the agent."
+}

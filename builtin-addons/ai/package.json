@@ -1,0 +1,29 @@
+{
+  "name": "@firedragon/ai",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wxt build",
+    "dev": "wxt"
+  },
+  "dependencies": {
+    "@quasar/extras": "catalog:",
+    "@unhead/vue": "catalog:",
+    "@vueuse/core": "catalog:",
+    "@wxt-dev/browser": "catalog:",
+    "quasar": "catalog:",
+    "vue": "catalog:",
+    "vue-i18n": "catalog:"
+  },
+  "devDependencies": {
+    "@firedragon/build": "workspace:^",
+    "@intlify/unplugin-vue-i18n": "catalog:",
+    "@quasar/vite-plugin": "catalog:",
+    "@types/gecko": "workspace:^",
+    "@wxt-dev/module-vue": "catalog:",
+    "sass-embedded": "catalog:",
+    "typescript": "catalog:",
+    "vite-plugin-vue-devtools": "catalog:",
+    "wxt": "catalog:"
+  }
+}
