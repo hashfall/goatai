@@ -37,19 +37,26 @@ Implementado e validado:
   (`@cf/zai-org/glm-4.7-flash`), streaming SSE e token de acesso.
 - Teste ponta a ponta: painel conectado ao Worker, mensagem enviada e resposta
   “Conectado” recebida no navegador.
+- Ferramentas de navegador no agente: `list_tabs`, `get_page`, `navigate`, `click`,
+  `type`, `scroll`, `go_back`, `go_forward`.
+- Página **Settings → IA** para salvar endpoint/modelo/token e carregar/editar/salvar o
+  `AGENTS.md` local (upload ou textarea).
+- O `AGENTS.md` é enviado como instruções de sistema em todas as conversas. Teste real:
+  persona “Fatec: …” aplicada e `list_tabs`/`navigate`/`get_page`/`click` executados.
 
 Ainda **não** implementado:
 
-- Ferramentas do agente (abas, cliques, formulários, navegação).
-- Tela/UX de configuração do agente.
-- Permissões e confirmações para ações sensíveis.
+- Confirmação explícita na UI para ações sensíveis (o prompt orienta o modelo a pedir,
+  mas não há bloqueio/confirmação técnica).
 - Histórico de conversa sincronizado entre janelas.
+- Botão na toolbar, à esquerda do menu hambúrguer, para mostrar/ocultar o painel IA
+  (hoje, se o painel for fechado, só é possível reabrir pelo menu Exibir ou atalho).
 
 Artefato de build validado:
 
 ```
 .dist/firedragon-v13.13.2.linux-x64.tar.xz   139 MB
-sha256: ebfca032f8924a84bca8746cff01514ec47d2a5ee148001c1f0ba6019db6252e
+sha256: 4eac05e4d094f9610be96d712d18e6d0ff53654a35ab56a5717160687382ce0b
 ```
 
 ---
@@ -424,23 +431,48 @@ Permissões no `wxt.config.ts` para o fetch funcionar em página de extensão:
 
 Para um domínio próprio, adicione o padrão correspondente e rebuild o addon/navegador.
 
-### 8.4 Próximos passos: ferramentas do agente
+### 8.4 Ferramentas do agente (implementado)
 
-Para navegar e agir em páginas, o addon vai precisar de permissões como:
+Código: `builtin-addons/ai/utils/tools.ts`; loop de tool calling em
+`builtin-addons/ai/utils/agent.ts` (`createAgentTransport`).
 
-- `tabs`, `scripting`, `webNavigation`, `storage`
-- host permissions (`<all_urls>` ou por origem)
+Ferramentas:
 
-Padrões recomendados:
+- `list_tabs` — lista abas (id, título, URL, ativa, pinned, audible).
+- `get_page` — URL, título, seleção, texto (até 9.000 chars) e até 120 elementos
+  interativos com `ref` (`g1`, `g2`, …).
+- `navigate` — navega a aba ativa/`tab_id` para URL http/https.
+- `click` — clica em um `ref` retornado por `get_page`.
+- `type` — digita em um `ref`; `submit=true` envia o formulário ou pressiona Enter.
+- `scroll` — rola para cima/baixo.
+- `go_back` / `go_forward` — histórico da aba.
 
-- Ações destrutivas/sensíveis pedem confirmação na UI.
-- Diferenciar leitura (snapshot/extração) de escrita (click, type, navigate).
-- Não executar instruções vindas do conteúdo da página.
-- Limitar escopo por aba/origem e registrar um log de ações.
-- Preferir APIs de extensão (`browser.tabs`, `browser.scripting`) a eval no conteúdo.
+Como funciona:
 
-O Worker já suporta function calling no modelo; falta definir o schema das ferramentas,
-executar as chamadas no addon e devolver os resultados ao modelo.
+1. O painel envia `messages`, `system` (AGENTS.md) e `tools` ao Worker.
+2. O Worker chama o Workers AI com `tool_choice: 'auto'` e devolve a mensagem.
+3. Se houver `tool_calls`, o painel executa localmente via `browser.tabs` /
+   `browser.tabs.executeScript`, devolve mensagens `role: 'tool'` e repete.
+4. O limite é 8 passos; o conteúdo final é fatiado no stream da UI.
+
+Permissões: `tabs` e `<all_urls>` além das permissões de host do Worker.
+
+Segurança: o prompt orienta a pedir confirmação antes de ações destrutivas, mas ainda
+**não** existe bloqueio/confirmação técnica na UI. O conteúdo da página é tratado como
+dado não confiável no prompt.
+
+### 8.5 Settings → IA
+
+- Página: `builtin-addons/settings/pages/ai/index.vue`.
+- Rota: `/ai`; item “AI” no menu lateral.
+- Campos: endpoint, modelo e token (password com mostrar/ocultar).
+- “Save connection” cria/atualiza `agents.json` com permissão `600`.
+- “Upload AGENTS.md” (máx. 128 KB) ou edição direta no textarea; “Save instructions”
+  grava `UAppData/config/AGENTS.md` com permissão `600`.
+- Instruções de como obter o token ficam em um `q-expansion-item`.
+- i18n: `en-US` e `pt-BR` (novo locale parcial; demais chaves caem no fallback en-US).
+- Experiment APIs usadas: `getAgentsConfig`, `saveAgentsConfig`, `getAgentsMd`,
+  `saveAgentsMd` (definidas em `content/src/extensions.ts` + schema + types).
 
 ---
 
@@ -510,12 +542,12 @@ tar -xJf .dist/firedragon-v13.13.2.linux-x64.tar.xz -C /tmp/opencode/goatai-run 
 
 ## 11. Pendências conhecidas
 
-- Sem ferramentas de navegador/ação.
-- Sem tela/UX de configuração do agente.
-- Sem confirmação de ações sensíveis.
+- Sem confirmação técnica/bloqueio para ações sensíveis (só orientação no prompt).
 - Sem sincronização de conversa entre janelas.
 - Sem testes automatizados do painel (validação atual é manual/visual).
 - Rotação do `AGENT_TOKEN` é manual (Worker secret + `agents.json` local).
+- Botão na toolbar (à esquerda do menu hambúrguer) para mostrar/ocultar o painel IA; hoje
+  só existem o menu Exibir → Goatai e o atalho Ctrl+Alt+A.
 - Branding do navegador inteiro continua FireDragon; apenas o assistente é Goatai.
 
 ---
@@ -574,4 +606,22 @@ tar -xJf .dist/firedragon-v13.13.2.linux-x64.tar.xz -C /tmp/opencode/goatai-run 
 9. Teste final: painel “Connected”, mensagem enviada e resposta “Conectado” recebida do
    GLM-4.7-Flash via Worker.
 10. `/chat` sem token retorna 401; `/health` retorna 200.
+
+### Ferramentas e Settings (2026-11-25)
+
+1. Criado `builtin-addons/ai/utils/tools.ts` com `list_tabs`, `get_page`, `navigate`,
+   `click`, `type`, `scroll`, `go_back`, `go_forward`.
+2. O Worker passou a aceitar `tools`, `system` e mensagens `role: 'tool'`, com chamada
+   não-streaming e retorno JSON `{ message }`.
+3. O painel implementa o loop de tool calling (até 8 passos) e executa as ferramentas via
+   APIs de extensão.
+4. Criada a página `Settings → IA` com endpoint/modelo/token e upload/edição do
+   `AGENTS.md`.
+5. Adicionadas as experiment APIs `saveAgentsConfig`, `getAgentsMd`, `saveAgentsMd`.
+6. Testes reais no navegador:
+   - persona do `AGENTS.md` (“Fatec: …”) aplicada;
+   - `list_tabs` retornou a aba ativa;
+   - `navigate` para `example.com` + `get_page` leu o texto;
+   - `click` no link “Learn More” navegou para `iana.org` e o agente leu a página.
+7. Pendente solicitado pelo usuário: botão na toolbar à esquerda do menu hambúrguer.
 

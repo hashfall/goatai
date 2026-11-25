@@ -1,0 +1,39 @@
+{
+  "title": "Configurações do FireDragon",
+  "back": "Voltar às configurações",
+  "pages": {
+    "ai": {
+      "title": "IA",
+      "description": "Conecte o Goatai ao seu agente Cloudflare e defina as instruções que o assistente deve sempre seguir.",
+      "config": {
+        "title": "Conexão",
+        "description": "O token é gravado no agents.json do perfil global do navegador, nunca no código desta página.",
+        "endpoint": "Endpoint do Worker",
+        "endpointHint": "O endpoint /chat do seu Worker Goatai.",
+        "model": "Modelo",
+        "modelHint": "ID do modelo do Cloudflare Workers AI.",
+        "token": "Token do agente",
+        "tokenHint": "O secret AGENT_TOKEN configurado no seu Worker.",
+        "save": "Salvar conexão",
+        "saved": "Salvo em {path}"
+      },
+      "tokenHelp": {
+        "title": "Como obter um token",
+        "caption": "Configuração do Worker e geração do token",
+        "intro": "O Goatai conversa com um Worker Cloudflare que você (ou seu administrador) publica. O Worker precisa de um secret chamado AGENT_TOKEN; o navegador usa o mesmo valor para autenticar.",
+        "admin": "Se você opera o Worker, defina um token e faça o deploy. Se outra pessoa opera, peça o token a ela.",
+        "security": "Trate o token como uma senha: quem tiver acesso a ele pode usar seu Worker e consumir a cota do Workers AI. Não compartilhe nem faça commit."
+      },
+      "agentsMd": {
+        "title": "AGENTS.md",
+        "description": "Envie ou edite o AGENTS.md local. O conteúdo é enviado como instruções de sistema em todas as conversas, definindo quem a IA é e como deve se comportar.",
+        "upload": "Enviar AGENTS.md",
+        "editor": "Conteúdo do AGENTS.md",
+        "save": "Salvar instruções",
+        "saved": "Salvo em {path}",
+        "loaded": "{name} carregado",
+        "tooLarge": "O arquivo tem mais de 128 KB."
+      }
+    }
+  }
+}

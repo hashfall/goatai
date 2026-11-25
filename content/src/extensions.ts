@@ -116,6 +116,60 @@ globalThis.firedragon = class extends ExtensionAPI {
                     });
                 },
 
+                async saveAgentsConfig(source: string): Promise<string> {
+                    let config: any;
+                    try {
+                        config = JSON.parse(source);
+                    } catch (e) {
+                        throw new Error(`agents.json inválido: ${e}`);
+                    }
+                    if (!config || typeof config !== 'object' || typeof config.agents !== 'object') {
+                        throw new Error('agents.json inválido: campo "agents" ausente');
+                    }
+                    const dir = lazy.File.fromDirsvc('UAppData').append('config');
+                    await IOUtils.makeDirectory(dir.path, {
+                        ignoreExisting: true,
+                        createAncestors: true,
+                    });
+                    const file = dir.clone().append('agents.json');
+                    await IOUtils.writeUTF8(file.path, JSON.stringify(config, null, 2) + '\n');
+                    await IOUtils.setPermissions(file.path, 0o600, false);
+                    return file.path;
+                },
+
+                async getAgentsMd(): Promise<string | null> {
+                    const candidates = [
+                        lazy.File.fromDirsvc('UAppData').append('config', 'AGENTS.md'),
+                        lazy.File.fromDirsvc('UAppData').append('AGENTS.md'),
+                        lazy.File.fromDirsvc('ProfD').append('AGENTS.md'),
+                    ];
+                    for (const file of candidates) {
+                        if (!file.exists()) {
+                            continue;
+                        }
+                        return await IOUtils.readUTF8(file.path);
+                    }
+                    return null;
+                },
+
+                async saveAgentsMd(content: string): Promise<string> {
+                    if (typeof content !== 'string') {
+                        throw new Error('AGENTS.md inválido');
+                    }
+                    if (content.length > 128 * 1024) {
+                        throw new Error('AGENTS.md muito grande (máximo 128 KB)');
+                    }
+                    const dir = lazy.File.fromDirsvc('UAppData').append('config');
+                    await IOUtils.makeDirectory(dir.path, {
+                        ignoreExisting: true,
+                        createAncestors: true,
+                    });
+                    const file = dir.clone().append('AGENTS.md');
+                    await IOUtils.writeUTF8(file.path, content);
+                    await IOUtils.setPermissions(file.path, 0o600, false);
+                    return file.path;
+                },
+
                 async getSearchSuggestions(searchString: string): Promise<string[]> {
                     const browser = ExtensionParent.apiManager.global.tabTracker.activeTab.linkedBrowser;
                     const privateMode = lazy.PrivateBrowsingUtils.isBrowserPrivate(browser);

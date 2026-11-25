@@ -236,6 +236,44 @@
         }
       },
       {
+        "name": "saveAgentsConfig",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "source",
+            "type": "string"
+          }
+        ],
+        "returns": {
+          "type": "string"
+        }
+      },
+      {
+        "name": "getAgentsMd",
+        "type": "function",
+        "async": true,
+        "parameters": [],
+        "returns": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      {
+        "name": "saveAgentsMd",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "content",
+            "type": "string"
+          }
+        ],
+        "returns": {
+          "type": "string"
+        }
+      },
+      {
         "name": "getSearchSuggestions",
         "type": "function",
         "async": true,

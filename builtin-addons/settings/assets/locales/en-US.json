@@ -2,6 +2,39 @@
   "title": "FireDragon Settings",
   "back": "Back to settings",
   "pages": {
+    "ai": {
+      "title": "AI",
+      "description": "Connect Goatai to your Cloudflare agent and define the instructions the assistant must always follow.",
+      "config": {
+        "title": "Connection",
+        "description": "The token is stored in agents.json in the browser's global profile, never in this page's source.",
+        "endpoint": "Worker endpoint",
+        "endpointHint": "The /chat endpoint of your Goatai Worker.",
+        "model": "Model",
+        "modelHint": "Cloudflare Workers AI model ID.",
+        "token": "Agent token",
+        "tokenHint": "The AGENT_TOKEN secret configured in your Worker.",
+        "save": "Save connection",
+        "saved": "Saved to {path}"
+      },
+      "tokenHelp": {
+        "title": "How to get a token",
+        "caption": "Worker setup and token generation",
+        "intro": "Goatai talks to a Cloudflare Worker that you (or your administrator) deploy. The Worker needs a secret named AGENT_TOKEN; the browser uses the same value to authenticate.",
+        "admin": "If you operate the Worker, set a token and deploy. If someone else operates it, ask them for the token.",
+        "security": "Treat the token as a password: anyone with it can use your Worker and consume Workers AI quota. Do not share it or commit it."
+      },
+      "agentsMd": {
+        "title": "AGENTS.md",
+        "description": "Upload or edit the local AGENTS.md. Its content is sent as the assistant's system instructions on every conversation, defining who it is and how it should behave.",
+        "upload": "Upload AGENTS.md",
+        "editor": "AGENTS.md content",
+        "save": "Save instructions",
+        "saved": "Saved to {path}",
+        "loaded": "Loaded {name}",
+        "tooLarge": "The file is larger than 128 KB."
+      }
+    },
     "home": {
       "title": "FireDragon Settings",
       "description": "We carefully choose default settings to focus on privacy and security. When changing these settings, read the description to understand the implications of those changes.",

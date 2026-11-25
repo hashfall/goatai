@@ -24,7 +24,14 @@ export default defineConfig({
     },
     manifest: {
         name: 'Goatai',
-        permissions: ['storage', 'https://*.workers.dev/*', 'http://localhost/*', 'http://127.0.0.1/*'],
+        permissions: [
+            'storage',
+            'tabs',
+            '<all_urls>',
+            'https://*.workers.dev/*',
+            'http://localhost/*',
+            'http://127.0.0.1/*',
+        ],
     },
     vite: () => ({
         plugins: [

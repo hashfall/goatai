@@ -8,7 +8,7 @@
     import {
         type AgentConfig,
         type ChatMessage,
-        createCloudflareTransport,
+        createAgentTransport,
         createNotConfiguredTransport,
         loadAgentConfig,
     } from '@/utils/agent';
@@ -100,8 +100,9 @@
         }
 
         await refreshAgent();
+        const system = await browser.firedragon.getAgentsMd().catch(() => null);
         const transport = agent.value
-            ? createCloudflareTransport(agent.value)
+            ? createAgentTransport(agent.value, system ?? '')
             : createNotConfiguredTransport(t('notConfigured'));
 
         messages.value.push({
@@ -143,7 +144,7 @@
             if (!controller.signal.aborted) {
                 console.error('[Goatai] agent request failed', error);
                 updateReply((message) => {
-                    message.content = t('error');
+                    message.content = `${t('error')}\n\n${error instanceof Error ? error.message : String(error)}`;
                 });
             }
         } finally {

@@ -56,6 +56,12 @@
                             </q-item-section>
                             <q-item-section>{{ t('pages.sidebar.title') }}</q-item-section>
                         </q-item>
+                        <q-item to="/ai" clickable v-ripple>
+                            <q-item-section avatar>
+                                <q-icon name="sym_o_smart_toy" />
+                            </q-item-section>
+                            <q-item-section>{{ t('pages.ai.title') }}</q-item-section>
+                        </q-item>
                     </q-list>
                 </q-scroll-area>
             </q-drawer>

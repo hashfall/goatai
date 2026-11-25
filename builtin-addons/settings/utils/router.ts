@@ -28,5 +28,9 @@ export default createRouter({
             path: '/sidebar',
             component: () => import('@/pages/sidebar/index.vue'),
         },
+        {
+            path: '/ai',
+            component: () => import('@/pages/ai/index.vue'),
+        },
     ],
 });

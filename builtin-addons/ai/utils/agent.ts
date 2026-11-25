@@ -1,6 +1,8 @@
 import type {} from '@firedragon/shared/types/extensions';
 import { browser } from 'wxt/browser';
 
+import { AGENT_TOOLS, runTool } from '@/utils/tools';
+
 export type ChatRole = 'user' | 'assistant';
 
 export interface ChatMessage {
@@ -81,7 +83,7 @@ export function createNotConfiguredTransport(message: string): ChatTransport {
     };
 }
 
-export function createCloudflareTransport(agent: AgentConfig): ChatTransport {
+export function createAgentTransport(agent: AgentConfig, system = ''): ChatTransport {
     return {
         async *send(messages, { signal }) {
             const headers: Record<string, string> = {
@@ -91,68 +93,85 @@ export function createCloudflareTransport(agent: AgentConfig): ChatTransport {
                 headers.authorization = `Bearer ${agent.token}`;
             }
 
-            const response = await fetch(agent.endpoint, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    messages: messages.map(({ role, content }) => ({ role, content })),
-                }),
-                signal,
-            });
+            const history: any[] = messages.map(({ role, content }) => ({ role, content }));
 
-            if (!response.ok) {
-                const detail = await response.text().catch(() => '');
-                throw new Error(`Agent HTTP ${response.status}: ${detail.slice(0, 300)}`);
-            }
-            if (!response.body) {
-                throw new Error('Agent response has no body');
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            const parse = function* (line: string): Generator<string> {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith('data:')) {
+            for (let step = 0; step < 8; step++) {
+                if (signal.aborted) {
                     return;
                 }
-                const payload = trimmed.slice(5).trim();
-                if (!payload || payload === '[DONE]') {
-                    return;
-                }
-                let data: any;
-                try {
-                    data = JSON.parse(payload);
-                } catch {
-                    return;
-                }
-                const text = data.response ?? data.choices?.[0]?.delta?.content ?? data.choices?.[0]?.message?.content;
-                if (text) {
-                    yield text;
-                }
-            };
 
-            try {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) {
-                        break;
+                const response = await fetch(agent.endpoint, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        messages: history,
+                        system,
+                        tools: AGENT_TOOLS,
+                        stream: false,
+                    }),
+                    signal,
+                });
+
+                if (!response.ok) {
+                    const detail = await response.text().catch(() => '');
+                    throw new Error(`Agent HTTP ${response.status}: ${detail.slice(0, 300)}`);
+                }
+
+                const payload: any = await response.json();
+                const message =
+                    payload?.message ??
+                    payload?.result?.choices?.[0]?.message ??
+                    payload?.choices?.[0]?.message ??
+                    (payload?.response ? { role: 'assistant', content: payload.response } : null);
+
+                if (!message) {
+                    throw new Error('Agent returned an invalid response');
+                }
+
+                const toolCalls: any[] = message.tool_calls ?? message.toolCalls ?? [];
+                if (toolCalls.length > 0) {
+                    history.push({
+                        role: 'assistant',
+                        content: message.content ?? '',
+                        tool_calls: toolCalls,
+                    });
+                    for (const call of toolCalls) {
+                        const name = call.function?.name ?? call.name;
+                        let args: Record<string, any> = {};
+                        let result: unknown;
+                        try {
+                            const raw = call.function?.arguments ?? call.arguments ?? '{}';
+                            args = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                            result = await runTool(name, args);
+                        } catch (error) {
+                            console.error('[Goatai] tool failed', name, error);
+                            result = { ok: false, error: String(error) };
+                        }
+                        history.push({
+                            role: 'tool',
+                            tool_call_id: call.id,
+                            name,
+                            content: JSON.stringify(result).slice(0, 20000),
+                        });
                     }
-                    buffer += decoder.decode(value, { stream: true });
-                    let index: number;
-                    while ((index = buffer.indexOf('\n')) !== -1) {
-                        const line = buffer.slice(0, index);
-                        buffer = buffer.slice(index + 1);
-                        yield* parse(line);
+                    continue;
+                }
+
+                const content = String(message.content ?? message.response ?? '').trim();
+                if (!content) {
+                    throw new Error('Agent returned an empty response');
+                }
+                for (let index = 0; index < content.length; index += 24) {
+                    if (signal.aborted) {
+                        return;
                     }
+                    yield content.slice(index, index + 24);
+                    await wait(8, signal);
                 }
-                if (buffer) {
-                    yield* parse(buffer);
-                }
-            } finally {
-                reader.releaseLock();
+                return;
             }
+
+            throw new Error('O agente atingiu o limite de passos de ferramentas');
         },
     };
 }
