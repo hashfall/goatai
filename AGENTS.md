@@ -31,20 +31,25 @@ Implementado e validado:
 - Preferências do painel: abertura e largura.
 - Atalho de teclado e item no menu Exibir.
 - Build completo do navegador gerado e testado com o painel aberto de verdade.
+- Leitura do `agents.json` no profile global via experiment API
+  `browser.firedragon.getAgentsConfig()`.
+- Transporte real para um Worker no Cloudflare com Workers AI
+  (`@cf/zai-org/glm-4.7-flash`), streaming SSE e token de acesso.
+- Teste ponta a ponta: painel conectado ao Worker, mensagem enviada e resposta
+  “Conectado” recebida no navegador.
 
 Ainda **não** implementado:
 
-- Leitura do `agents.json`.
-- Transporte real para Cloudflare Agents (o `utils/agent.ts` é um stub).
 - Ferramentas do agente (abas, cliques, formulários, navegação).
 - Tela/UX de configuração do agente.
 - Permissões e confirmações para ações sensíveis.
+- Histórico de conversa sincronizado entre janelas.
 
 Artefato de build validado:
 
 ```
-.dist/firedragon-v13.13.2.linux-x64.tar.xz   141 MB
-sha256: 44868fed30fe78bb6c2104106ea1abb6c8b1875431dbe2d86127605439cb0cf9
+.dist/firedragon-v13.13.2.linux-x64.tar.xz   139 MB
+sha256: ebfca032f8924a84bca8746cff01514ec47d2a5ee148001c1f0ba6019db6252e
 ```
 
 ---
@@ -324,32 +329,50 @@ Observações:
 
 ---
 
-## 8. Próximo passo: Cloudflare Agents + `agents.json`
+## 8. Cloudflare Agents + `agents.json` (implementado)
 
-### 8.1 Onde plugar
+### 8.1 Worker
 
-- Trocar o stub em `builtin-addons/ai/utils/agent.ts` por um transport real.
-- O transport recebe `messages: ChatMessage[]` e `signal: AbortSignal` e deve render
-  chunks de texto (streaming).
-- A UI já suporta: envio, streaming, parada, erro, persistência, nova conversa.
+- Código: `workers/goatai-agent/`.
+- URL de produção: `https://goatai-agent.goatai-agent.workers.dev`.
+- Modelo: `@cf/zai-org/glm-4.7-flash` (Workers AI, function calling, 131k de contexto).
+- Endpoints:
+  - `GET /health` → `{ ok: true, model }` (sem autenticação).
+  - `POST /chat` → body `{ messages: [{ role, content }] }`; exige
+    `Authorization: Bearer <AGENT_TOKEN>`; responde SSE (`text/event-stream`).
+- O token fica no secret `AGENT_TOKEN` do Worker, nunca no código.
+- O Worker usa o binding `env.AI` (`[ai] binding = "AI"` no `wrangler.toml`).
+- `max_tokens` atual: 2048. O modelo emite `reasoning_content`; o transporte do painel
+  ignora esse campo e mostra apenas `content`.
 
-### 8.2 Configuração
+Deploy (a conta já está autenticada no Wrangler neste ambiente):
 
-O arquivo `agents.json` ainda **não** é lido. Decisão pendente de localização:
+```bash
+cd workers/goatai-agent
+pnpm dlx wrangler deploy
+```
 
-- `UAppData/config/agents.json` (global por usuário) — combina com os diretórios que o
-  `ConfigLoader` do FireDragon já usa (`UAppData/config`, `GreD/config`).
-- Ou o diretório do perfil ativo (`ProfD`), se a configuração for por perfil.
+Se o login expirar:
 
-Requisitos de segurança:
+```bash
+pnpm dlx wrangler login --device
+```
 
-- Não commitar tokens/segredos.
-- O addon deve ler o arquivo via API privilegiada do chrome (experiment API) ou via
-  mensagem para o processo pai; páginas de extensão não leem `file://` do profile
-  diretamente.
-- A URL do agente Cloudflare e o token devem ser tratados como segredo local.
+O `--device` mostra uma URL e um código curto; o login é feito no navegador do usuário.
+Não peça senha/2FA e não imprima o token.
 
-Sugestão de formato (a confirmar com o dono do projeto):
+### 8.2 Configuração no navegador
+
+O arquivo real fica em:
+
+```
+~/.config/firedragon/config/agents.json
+```
+
+(UAppData no Linux para este build é `~/.config/firedragon`; o `ConfigLoader` do
+FireDragon também usa `UAppData/config`.)
+
+Formato usado:
 
 ```json
 {
@@ -357,15 +380,51 @@ Sugestão de formato (a confirmar com o dono do projeto):
   "agents": {
     "goatai": {
       "provider": "cloudflare",
-      "endpoint": "https://seu-worker.workers.dev/...",
-      "model": "...",
-      "token": "..."
+      "endpoint": "https://goatai-agent.goatai-agent.workers.dev/chat",
+      "model": "@cf/zai-org/glm-4.7-flash",
+      "token": "<AGENT_TOKEN>"
     }
   }
 }
 ```
 
-### 8.3 Ferramentas do agente
+O arquivo deve ter permissão `600` e **nunca** deve ser commitado. Um exemplo sem segredo
+está em `workers/goatai-agent/agents.example.json`.
+
+Leitura do arquivo no chrome: `content/src/extensions.ts` expõe a função de experiment API
+`getAgentsConfig()`; o schema está em `content/public/extensions.json` e os tipos em
+`shared/src/types/extensions.ts`. A busca tenta, nesta ordem:
+
+1. `UAppData/config/agents.json`
+2. `UAppData/agents.json`
+3. `ProfD/agents.json`
+4. `GreD/config/agents.json`
+
+A resposta é um JSON com `{ path, config, error?, searched? }`.
+
+### 8.3 Transporte no painel
+
+`builtin-addons/ai/utils/agent.ts`:
+
+- `loadAgentConfig()` chama `browser.firedragon.getAgentsConfig()` e resolve o agente
+  `default`.
+- `createCloudflareTransport(agent)` faz `fetch` no endpoint, envia o token e interpreta o
+  SSE.
+- Chunks aceitos: `data.response`, `data.choices[0].delta.content` e
+  `data.choices[0].message.content`.
+- Erros HTTP viram exceção e o painel mostra a mensagem de erro localizada.
+- O status do compositor mostra “Connected”/“Not connected” e o nome do modelo; o `title`
+  mostra o caminho do `agents.json` ou o erro de configuração.
+
+Permissões no `wxt.config.ts` para o fetch funcionar em página de extensão:
+
+- `https://*.workers.dev/*`
+- `http://localhost/*`
+- `http://127.0.0.1/*`
+
+Para um domínio próprio, adicione o padrão correspondente e rebuild o addon/navegador.
+
+### 8.4 Próximos passos: ferramentas do agente
 
 Para navegar e agir em páginas, o addon vai precisar de permissões como:
 
@@ -380,6 +439,9 @@ Padrões recomendados:
 - Limitar escopo por aba/origem e registrar um log de ações.
 - Preferir APIs de extensão (`browser.tabs`, `browser.scripting`) a eval no conteúdo.
 
+O Worker já suporta function calling no modelo; falta definir o schema das ferramentas,
+executar as chamadas no addon e devolver os resultados ao modelo.
+
 ---
 
 ## 9. Regras para agentes que forem editar este repo
@@ -391,15 +453,24 @@ Padrões recomendados:
   O nome visível é Goatai.
 - Preserve as strings i18n em `en-US` e `pt-BR`; adicione novas chaves nos dois arquivos.
 - Não commite `.build/`, `.cache/`, `.dist/`, `node_modules/`, `.wxt/`, `dist/`.
+- Nunca commite `agents.json`, `.dev.vars` ou tokens. O `agents.json` real fica fora do
+  repositório, com permissão `600`.
+- Não imprima o valor de `AGENT_TOKEN` em logs, chat ou commits. Para trocar, gere um novo
+  token, aplique com `wrangler secret put AGENT_TOKEN` e atualize o `agents.json` local.
 - `branding/goatai/` é trabalho do usuário; não apague nem sobrescreva.
 - Não altere `pnpm-lock.yaml` à mão; rode `pnpm install` com o submodule inicializado.
 - Se alterar `mozconfig`, branding, app name ou opções de configure: faça clobber antes de
   rebuildar.
+- Ao adicionar permissões de host no `wxt.config.ts` (ex.: domínio próprio do Worker),
+  rebuild o addon e o navegador; sem isso o `fetch` da página de extensão falha.
+- Em código chrome, `IOUtils` é global no Firefox 160; não importe
+  `resource://gre/modules/IOUtils.sys.mjs` (não existe mais).
 - Para builds longos, use `-j8` e `CARGO_BUILD_JOBS=4`; acompanhe até o fim e só declare
   sucesso com o artefato gerado e um smoke test.
 - Nunca diga que o build passou sem verificar `dist/bin/firedragon --version` ou o
   `.tar.xz` final.
 - Ao testar UI, use perfil temporário (`--profile /tmp/...`) para não tocar no perfil real.
+  Se precisar interagir via X11, use `GDK_BACKEND=x11 MOZ_ENABLE_WAYLAND=0` e `xdotool`.
 - A árvore `.build/firedragon-v13.13.2.linux-x64` (25 GB) pode ser removida se não for
   mais necessária; `.cache` guarda o source de 854 MB.
 
@@ -411,6 +482,12 @@ Padrões recomendados:
 # painel / addon
 pnpm -C builtin-addons/ai build
 pnpm -C content build
+
+# Cloudflare Worker
+cd workers/goatai-agent
+pnpm dlx wrangler deploy
+pnpm dlx wrangler login --device     # se o login expirar
+curl https://goatai-agent.goatai-agent.workers.dev/health
 
 # build incremental do navegador (container)
 docker run -d --name goatai-build --init \
@@ -433,12 +510,12 @@ tar -xJf .dist/firedragon-v13.13.2.linux-x64.tar.xz -C /tmp/opencode/goatai-run 
 
 ## 11. Pendências conhecidas
 
-- Painel ainda não conectado a nenhum agente real.
-- Sem `agents.json` implementado.
 - Sem ferramentas de navegador/ação.
+- Sem tela/UX de configuração do agente.
 - Sem confirmação de ações sensíveis.
 - Sem sincronização de conversa entre janelas.
 - Sem testes automatizados do painel (validação atual é manual/visual).
+- Rotação do `AGENT_TOKEN` é manual (Worker secret + `agents.json` local).
 - Branding do navegador inteiro continua FireDragon; apenas o assistente é Goatai.
 
 ---
@@ -480,4 +557,21 @@ tar -xJf .dist/firedragon-v13.13.2.linux-x64.tar.xz -C /tmp/opencode/goatai-run 
 9. `package-multi-locale` gerou o `.tar.xz` de 141 MB; artefato copiado para `.dist/`.
 10. Binário extraído do próprio `.tar.xz` executado com perfil temporário em Wayland/niri;
     o painel Goatai apareceu fixo à direita e funcional.
+
+### Cloudflare
+
+1. Modelo escolhido: `@cf/zai-org/glm-4.7-flash` (function calling, 131k de contexto).
+2. Criado o Worker `workers/goatai-agent` com binding `env.AI`, CORS e autenticação por
+   token.
+3. Login do Wrangler feito com `wrangler login --device` (código curto no navegador,
+   sem senha/2FA no chat).
+4. Deploy em `https://goatai-agent.goatai-agent.workers.dev`.
+5. Secret `AGENT_TOKEN` gerado com `openssl rand -hex 32` e gravado no Worker.
+6. `agents.json` criado em `~/.config/firedragon/config/agents.json` (permissão 600).
+7. Adicionada a experiment API `getAgentsConfig()` e o transporte SSE no addon.
+8. Primeiro teste mostrou “Not connected” porque `IOUtils` não é mais um módulo no
+   Firefox 160; corrigido usando o global `IOUtils.readUTF8`.
+9. Teste final: painel “Connected”, mensagem enviada e resposta “Conectado” recebida do
+   GLM-4.7-Flash via Worker.
+10. `/chat` sem token retorna 401; `/health` retorna 200.
 

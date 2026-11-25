@@ -226,6 +226,16 @@
         }
       },
       {
+        "name": "getAgentsConfig",
+        "type": "function",
+        "async": true,
+        "parameters": [],
+        "returns": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      {
         "name": "getSearchSuggestions",
         "type": "function",
         "async": true,

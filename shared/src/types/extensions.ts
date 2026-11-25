@@ -22,6 +22,8 @@ declare module '@wxt-dev/browser' {
 
             export function getChildList(aStartingAt: string): Promise<string[]>;
 
+            export function getAgentsConfig(): Promise<string | null>;
+
             export function getSearchSuggestions(searchString: string): Promise<string[]>;
         }
     }

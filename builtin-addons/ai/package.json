@@ -7,6 +7,7 @@
     "dev": "wxt"
   },
   "dependencies": {
+    "@firedragon/shared": "workspace:^",
     "@quasar/extras": "catalog:",
     "@unhead/vue": "catalog:",
     "@vueuse/core": "catalog:",

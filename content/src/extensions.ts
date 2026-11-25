@@ -3,6 +3,7 @@
 const lazy: any = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+    File: 'resource://firedragon/modules/utils/File.sys.mjs',
     PrivateBrowsingUtils: 'resource://gre/modules/PrivateBrowsingUtils.sys.mjs',
     SearchService: 'moz-src:///toolkit/components/search/SearchService.sys.mjs',
     SearchSuggestionController: 'moz-src:///toolkit/components/search/SearchSuggestionController.sys.mjs',
@@ -80,6 +81,39 @@ globalThis.firedragon = class extends ExtensionAPI {
 
                 getChildList(aStartingAt: string): string[] {
                     return Services.prefs.getChildList(aStartingAt);
+                },
+
+                async getAgentsConfig(): Promise<string> {
+                    const candidates = [
+                        lazy.File.fromDirsvc('UAppData').append('config', 'agents.json'),
+                        lazy.File.fromDirsvc('UAppData').append('agents.json'),
+                        lazy.File.fromDirsvc('ProfD').append('agents.json'),
+                        lazy.File.fromDirsvc('GreD').append('config', 'agents.json'),
+                    ];
+                    for (const file of candidates) {
+                        if (!file.exists()) {
+                            continue;
+                        }
+                        try {
+                            const source = await IOUtils.readUTF8(file.path);
+                            return JSON.stringify({
+                                path: file.path,
+                                config: JSON.parse(source),
+                            });
+                        } catch (e) {
+                            return JSON.stringify({
+                                path: file.path,
+                                config: null,
+                                error: String(e),
+                            });
+                        }
+                    }
+                    return JSON.stringify({
+                        path: null,
+                        config: null,
+                        error: 'agents.json não encontrado',
+                        searched: candidates.map((file: any) => file.path),
+                    });
                 },
 
                 async getSearchSuggestions(searchString: string): Promise<string[]> {

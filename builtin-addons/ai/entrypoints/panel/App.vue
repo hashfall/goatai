@@ -1,11 +1,17 @@
 <script setup lang="ts">
     import { useHead } from '@unhead/vue';
-    import { nextTick, onMounted, ref, watch } from 'vue';
+    import { computed, nextTick, onMounted, ref, watch } from 'vue';
     import { browser } from 'wxt/browser';
     import { storage } from 'wxt/utils/storage';
 
     import MessageBubble from '@/components/MessageBubble.vue';
-    import { type ChatMessage, createTransport } from '@/utils/agent';
+    import {
+        type AgentConfig,
+        type ChatMessage,
+        createCloudflareTransport,
+        createNotConfiguredTransport,
+        loadAgentConfig,
+    } from '@/utils/agent';
 
     const { t } = useI18n();
 
@@ -23,21 +29,28 @@
     const messages = ref<ChatMessage[]>([]);
     const draft = ref('');
     const streaming = ref(false);
-    const connected = ref(false);
+    const agent = ref<AgentConfig | null>(null);
+    const agentPath = ref<string | null>(null);
+    const agentError = ref<string | null>(null);
+    const connected = computed(() => agent.value !== null);
     const messagesEl = ref<HTMLElement>();
     const composer = ref<{ focus: () => void }>();
 
     let controller: AbortController | null = null;
 
-    const transport = createTransport({
-        notConfiguredMessage: t('notConfigured'),
-    });
-
     const suggestions = ['summarize', 'explain', 'find'] as const;
+
+    async function refreshAgent() {
+        const result = await loadAgentConfig();
+        agent.value = result.config;
+        agentPath.value = result.path;
+        agentError.value = result.error ?? null;
+    }
 
     onMounted(async () => {
         messages.value = await messagesStorage.getValue();
         draft.value = await draftStorage.getValue();
+        await refreshAgent();
     });
 
     watch(
@@ -86,6 +99,11 @@
             return;
         }
 
+        await refreshAgent();
+        const transport = agent.value
+            ? createCloudflareTransport(agent.value)
+            : createNotConfiguredTransport(t('notConfigured'));
+
         messages.value.push({
             id: crypto.randomUUID(),
             role: 'user',
@@ -121,8 +139,9 @@
                 });
                 scrollToBottom();
             }
-        } catch {
+        } catch (error) {
             if (!controller.signal.aborted) {
+                console.error('[Goatai] agent request failed', error);
                 updateReply((message) => {
                     message.content = t('error');
                 });
@@ -206,7 +225,9 @@
             <div class="composer__status">
                 <span class="composer__dot" :class="{ 'composer__dot--online': connected }" />
                 {{ connected ? t('status.online') : t('status.offline') }}
-                <span class="composer__hint">agents.json</span>
+                <span class="composer__hint" :title="agentPath ?? agentError ?? 'agents.json'">
+                    {{ agent?.model?.split('/').pop() ?? 'agents.json' }}
+                </span>
             </div>
             <div class="composer__box">
                 <q-input

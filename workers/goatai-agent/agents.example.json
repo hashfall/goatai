@@ -1,0 +1,11 @@
+{
+  "default": "goatai",
+  "agents": {
+    "goatai": {
+      "provider": "cloudflare",
+      "endpoint": "https://goatai-agent.SEUSUBDOMINIO.workers.dev/chat",
+      "model": "@cf/zai-org/glm-4.7-flash",
+      "token": "COLE_AQUI_O_TOKEN_GERADO"
+    }
+  }
+}

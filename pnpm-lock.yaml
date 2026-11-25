@@ -274,6 +274,9 @@ importers:
 
   builtin-addons/ai:
     dependencies:
+      '@firedragon/shared':
+        specifier: workspace:^
+        version: link:../../shared
       '@quasar/extras':
         specifier: 'catalog:'
         version: 2.1.0
