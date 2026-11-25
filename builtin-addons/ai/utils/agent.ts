@@ -173,7 +173,14 @@ export function createAgentTransport(agent: AgentConfig, system = ''): ChatTrans
                     continue;
                 }
 
-                const content = String(message.content ?? message.response ?? '').trim();
+                let content = String(message.content ?? message.response ?? '').trim();
+                if (!content && useTools) {
+                    const fallback = await request(
+                        false,
+                        'Responda agora ao usuário usando o que já descobriu. Não chame ferramentas.',
+                    );
+                    content = String(fallback.content ?? fallback.response ?? '').trim();
+                }
                 if (!content) {
                     throw new Error('O agente não retornou uma resposta final');
                 }

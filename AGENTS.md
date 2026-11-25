@@ -40,7 +40,7 @@ Implementado e validado:
   `llama-4-scout`, `llama-3.3-70b`).
 - Teste ponta a ponta: painel conectado ao Worker, mensagem enviada e resposta
   “Conectado” recebida no navegador.
-- Ferramentas de navegador no agente: `list_tabs`, `get_page`, `find_text`, `navigate`, `click`,
+- Ferramentas de navegador no agente: `list_tabs`, `get_page`, `find_text`, `read_pdf`, `navigate`, `click`,
   `type`, `scroll`, `go_back`, `go_forward`.
 - Página **Settings → IA** para salvar endpoint/modelo/token e carregar/editar/salvar o
   `AGENTS.md` local (upload ou textarea).
@@ -59,10 +59,10 @@ Artefato de build validado:
 
 ```
 .dist/firedragon-v13.13.2.linux-x64.tar.xz   139 MB
-sha256: d65502db106c505b423d9418e6144d1fcc7075e00010f23862eeb96004895d35
+sha256: 11566d1f516fc361c853c138d77943161cc64e95336a03116f8731efb0bc7e8c
 
 .dist/firedragon-v13.13.2.win32-x64.zip      223 MB
-sha256: 93f5f150b748492542dba2de4094e9bc6e454b14053d27bf24a5238614692d8d
+sha256: a7419c1b9c6ed07cdea037a5d728c743175ede7c3cc9ac319aa0806016dea98c
 ```
 
 ---
@@ -325,7 +325,7 @@ Resultado:
 
 ```
 .dist/firedragon-v13.13.2.win32-x64.zip   223 MB
-sha256: 93f5f150b748492542dba2de4094e9bc6e454b14053d27bf24a5238614692d8d
+sha256: a7419c1b9c6ed07cdea037a5d728c743175ede7c3cc9ac319aa0806016dea98c
 ```
 
 Validação feita:
@@ -497,6 +497,10 @@ Ferramentas:
   120 elementos interativos com `ref` (`g1`, `g2`, …).
 - `find_text` — procura um termo no DOM, rola até a primeira ocorrência e devolve até 5
   trechos com contexto. Evita rolagem cega em documentos longos.
+- `read_pdf` — baixa e extrai o texto de PDFs com PDF.js (inclusive Google Drive
+  `/file/d/.../view`), com `query` para buscar termos e `page` para ler uma página.
+  Retorna `matches` e `latest`; para “término das aulas”, a ocorrência do 2º semestre é a
+  última e vem com `latest`.
 - `navigate` — navega a aba ativa/`tab_id` para URL http/https.
 - `click` — clica em um `ref` retornado por `get_page`.
 - `type` — digita em um `ref`; `submit=true` envia o formulário ou pressiona Enter.
@@ -610,6 +614,8 @@ python3 scripts/patch-windows-build.py
 - Rotação do `AGENT_TOKEN` é manual (Worker secret + `agents.json` local).
 - Windows: GUI ainda não validada em uma máquina Windows real; o smoke test foi
   `--version`/headless sob Wine. O instalador `.installer.exe` também não foi regenerado.
+- PDFs escaneados (imagem, sem camada de texto) ainda precisam de OCR; links privados do
+  Drive não foram testados além do link público usado neste caso.
 - Branding do navegador inteiro continua FireDragon; apenas o assistente é Goatai.
 
 ---
@@ -715,8 +721,11 @@ python3 scripts/patch-windows-build.py
    sem estourar o limite.
 7. Scroll reforçado para containers internos (docs) e adicionada `find_text`, que rola até
    o termo e retorna trechos. Teste determinístico em página com `div#doc`: detectou o
-   container, chegou a `atBottom=true` e encontrou `FIM-DO-DOCUMENTO`. PDF viewer do
-   Firefox ainda não foi validado separadamente.
+   container, chegou a `atBottom=true` e encontrou `FIM-DO-DOCUMENTO`.
+8. PDF: `read_pdf` com PDF.js local (o `toMarkdown` do Workers AI devolveu páginas vazias
+   para este PDF). Teste no addon real com o calendário do Drive: 6 páginas, 16.868 chars,
+   ocorrências do 1º semestre na página 3 e do 2º na página 6. O modelo leu a página 6 e
+   respondeu **14/12/2026**. PDFs escaneados (sem camada de texto) ainda precisam de OCR.
 
 ### Windows (2026-11-25)
 

@@ -1,5 +1,7 @@
 import { browser } from 'wxt/browser';
 
+import { loadPdf, searchPdf } from '@/utils/pdf';
+
 export interface AgentTool {
     type: 'function';
     function: {
@@ -43,6 +45,15 @@ export const AGENT_TOOLS: AgentTool[] = [
             description:
                 'Procura um texto na aba, rola até a primeira ocorrência e retorna até 5 trechos com contexto. Use antes de rolar cegamente em documentos longos.',
             parameters: object({ query: string, tab_id: number }, ['query']),
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'read_pdf',
+            description:
+                'Baixa e extrai o texto de um PDF, inclusive links Google Drive /file/d/.../view. Use query para procurar datas/termos e receber páginas e trechos; use page para ler uma página específica; sem query/page retorna o texto (limitado). Em PDFs, prefira read_pdf em vez de scroll. Se houver várias ocorrências, compare todas e use a mais recente quando a pergunta for sobre o 2º semestre/atualidade.',
+            parameters: object({ url: string, query: string, page: number, tab_id: number }),
         },
     },
     {
@@ -193,9 +204,15 @@ function pageSnapshot() {
         .slice(0, 9000);
 
     const scroller = document.scrollingElement || document.documentElement;
+    const isPdf =
+        /(?:drive|docs)\.google\.com\/file\/d\//.test(location.href) || /\.pdf(?:$|[?#])/i.test(location.href);
     return {
         url: location.href,
         title: document.title,
+        pdf: isPdf || undefined,
+        hint: isPdf
+            ? 'Esta página é um PDF ou viewer de PDF. Use read_pdf (query=termo) para ler o conteúdo.'
+            : undefined,
         selected: (window.getSelection()?.toString() || '').slice(0, 2000),
         scroll: {
             y: Math.round(scroller.scrollTop),
@@ -250,6 +267,9 @@ function scrollPage(direction: string, to: string, amount: number) {
             continue;
         }
         const style = getComputedStyle(element);
+        if (!style) {
+            continue;
+        }
         const isRoot = element === document.scrollingElement || element === document.documentElement;
         if (!isRoot && !/(auto|scroll|overlay)/.test(style.overflowY)) {
             continue;
@@ -359,6 +379,65 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
         }));
     }
 
+    if (name === 'read_pdf') {
+        const url = args.url
+            ? String(args.url)
+            : (await resolveTab(typeof args.tab_id === 'number' ? args.tab_id : undefined)).url;
+        if (!url || !/^https?:/i.test(url)) {
+            throw new Error('URL de PDF inválida');
+        }
+        const document = await loadPdf(url);
+        const pageNumber = Number(args.page);
+        if (Number.isInteger(pageNumber) && pageNumber > 0) {
+            if (pageNumber > document.pages) {
+                return {
+                    ok: false,
+                    error: 'page_out_of_range',
+                    pages: document.pages,
+                    message: `O PDF tem ${document.pages} páginas.`,
+                };
+            }
+            const pageText = document.pagesText[pageNumber - 1] ?? '';
+            return {
+                ok: true,
+                url: document.url,
+                sourceUrl: url,
+                pages: document.pages,
+                page: pageNumber,
+                chars: pageText.length,
+                text: pageText.slice(0, 15000),
+                truncated: pageText.length > 15000,
+            };
+        }
+
+        const query = String(args.query ?? '').trim();
+        if (query) {
+            const matches = searchPdf(document, query);
+            return {
+                ok: true,
+                url: document.url,
+                sourceUrl: url,
+                pages: document.pages,
+                query,
+                matches,
+                latest: matches.at(-1) ?? null,
+                note: matches.length
+                    ? 'Se houver várias ocorrências, a última costuma ser a mais recente (ex.: 2º semestre).'
+                    : 'Nenhuma ocorrência encontrada. Tente query "término das aulas" ou "dezembro".',
+            };
+        }
+        const max = 30000;
+        return {
+            ok: true,
+            url: document.url,
+            sourceUrl: url,
+            pages: document.pages,
+            chars: document.text.length,
+            text: document.text.slice(0, max),
+            truncated: document.text.length > max,
+        };
+    }
+
     const tab = await resolveTab(typeof args.tab_id === 'number' ? args.tab_id : undefined);
     if (!tab.id) {
         throw new Error('Aba sem id');
@@ -434,7 +513,7 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
                 })()`,
             );
             if (args.submit) {
-                await waitAfterAction(tab.id);
+                await waitAfterAction(tab.id!);
             }
             return { ok: true };
         }

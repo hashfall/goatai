@@ -12,6 +12,7 @@
     "@unhead/vue": "catalog:",
     "@vueuse/core": "catalog:",
     "@wxt-dev/browser": "catalog:",
+    "pdfjs-dist": "^6.5.438",
     "quasar": "catalog:",
     "vue": "catalog:",
     "vue-i18n": "catalog:"
