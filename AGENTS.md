@@ -43,20 +43,20 @@ Implementado e validado:
   `AGENTS.md` local (upload ou textarea).
 - O `AGENTS.md` é enviado como instruções de sistema em todas as conversas. Teste real:
   persona “Fatec: …” aplicada e `list_tabs`/`navigate`/`get_page`/`click` executados.
+- Botão na toolbar, imediatamente à esquerda do menu hambúrguer, para mostrar/ocultar o
+  painel IA; estado sincronizado com `firedragon.ai.panel.open`.
 
 Ainda **não** implementado:
 
 - Confirmação explícita na UI para ações sensíveis (o prompt orienta o modelo a pedir,
   mas não há bloqueio/confirmação técnica).
 - Histórico de conversa sincronizado entre janelas.
-- Botão na toolbar, à esquerda do menu hambúrguer, para mostrar/ocultar o painel IA
-  (hoje, se o painel for fechado, só é possível reabrir pelo menu Exibir ou atalho).
 
 Artefato de build validado:
 
 ```
 .dist/firedragon-v13.13.2.linux-x64.tar.xz   139 MB
-sha256: 4eac05e4d094f9610be96d712d18e6d0ff53654a35ab56a5717160687382ce0b
+sha256: eb5eb12555a518f07fd87c8bc790975068ce7315ed19a273d1b3173b326db65c
 ```
 
 ---
@@ -109,6 +109,9 @@ O que faz em `DOMContentLoaded`:
    - Menu: Exibir → Goatai (checkbox sincronizado com a pref)
 7. O painel é escondido em fullscreen (`:root[inFullscreen]` / `:root[inDOMFullscreen]`).
 8. O splitter salva a largura ao final do resize (`command`).
+9. Insere o botão `#firedragon-ai-button` na toolbar, imediatamente antes de
+   `#PanelUI-button` (menu hambúrguer). O botão usa `content/public/ai-toolbar.svg`,
+   alterna a pref `firedragon.ai.panel.open` e reflete o estado em `checked`/`aria-pressed`.
 
 IDs relevantes:
 
@@ -120,6 +123,7 @@ IDs relevantes:
 | Atalho | `firedragon-ai-panel-key` |
 | Command | `firedragon-ai-panel-toggle` |
 | Item de menu | `firedragon-ai-panel-menu` |
+| Botão da toolbar | `firedragon-ai-button` |
 
 ### 3.3 CSS do chrome
 
@@ -546,8 +550,6 @@ tar -xJf .dist/firedragon-v13.13.2.linux-x64.tar.xz -C /tmp/opencode/goatai-run 
 - Sem sincronização de conversa entre janelas.
 - Sem testes automatizados do painel (validação atual é manual/visual).
 - Rotação do `AGENT_TOKEN` é manual (Worker secret + `agents.json` local).
-- Botão na toolbar (à esquerda do menu hambúrguer) para mostrar/ocultar o painel IA; hoje
-  só existem o menu Exibir → Goatai e o atalho Ctrl+Alt+A.
 - Branding do navegador inteiro continua FireDragon; apenas o assistente é Goatai.
 
 ---
@@ -623,5 +625,13 @@ tar -xJf .dist/firedragon-v13.13.2.linux-x64.tar.xz -C /tmp/opencode/goatai-run 
    - `list_tabs` retornou a aba ativa;
    - `navigate` para `example.com` + `get_page` leu o texto;
    - `click` no link “Learn More” navegou para `iana.org` e o agente leu a página.
-7. Pendente solicitado pelo usuário: botão na toolbar à esquerda do menu hambúrguer.
+
+### Toolbar (2026-11-25)
+
+1. Adicionado `content/public/ai-toolbar.svg` (ícone de chat com `context-fill`).
+2. `content/src/browser/aiPanel.ts` insere `#firedragon-ai-button` antes de
+   `#PanelUI-button`.
+3. O botão alterna `firedragon.ai.panel.open` e sincroniza `checked`/`aria-pressed` com a
+   pref; também abre/fecha pelo menu Exibir e Ctrl+Alt+A.
+4. Testado no build: botão aparece à esquerda do hambúrguer e oculta/mostra o painel.
 

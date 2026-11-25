@@ -129,6 +129,23 @@ document!.addEventListener(
             });
         }
 
+        const appMenu = document!.getElementById('PanelUI-button');
+        if (appMenu) {
+            const button = h('xul:toolbarbutton', {
+                id: 'firedragon-ai-button',
+                class: 'toolbarbutton-1 chromeclass-toolbar-additional',
+                tooltiptext: 'Goatai',
+                removable: 'false',
+                'aria-pressed': 'false',
+            });
+            button.addEventListener('command', toggle);
+            appMenu.parentNode!.insertBefore(button, appMenu);
+            effect(() => {
+                button.setAttribute('checked', open.value ? 'true' : 'false');
+                button.setAttribute('aria-pressed', open.value ? 'true' : 'false');
+            });
+        }
+
         (window as any).gFiredragonAIPanel = {
             toggle,
             show() {

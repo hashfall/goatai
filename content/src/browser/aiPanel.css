@@ -19,6 +19,14 @@
     outline: auto;
 }
 
+#firedragon-ai-button {
+    list-style-image: url('chrome://firedragon/content/ai-toolbar.svg');
+}
+
+#firedragon-ai-button[checked='true'] {
+    background-color: var(--toolbarbutton-active-background);
+}
+
 :root[inFullscreen] #firedragon-ai-panel-box,
 :root[inFullscreen] #firedragon-ai-panel-splitter,
 :root[inDOMFullscreen] #firedragon-ai-panel-box,
