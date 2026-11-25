@@ -4,7 +4,7 @@
     "goatai": {
       "provider": "cloudflare",
       "endpoint": "https://goatai-agent.SEUSUBDOMINIO.workers.dev/chat",
-      "model": "@cf/zai-org/glm-4.7-flash",
+      "model": "@cf/openai/gpt-oss-20b",
       "token": "COLE_AQUI_O_TOKEN_GERADO"
     }
   }

@@ -1,6 +1,6 @@
 # Goatai Agent Worker
 
-Worker mínimo que expõe o Workers AI (`@cf/zai-org/glm-4.7-flash`) para o painel Goatai.
+Worker mínimo que expõe o Workers AI (`@cf/openai/gpt-oss-20b`) para o painel Goatai.
 
 ## Deploy
 
@@ -26,5 +26,5 @@ Copie `agents.example.json` para o `agents.json` do profile global do Goatai e a
 
 ## Modelo
 
-O modelo padrão é `@cf/zai-org/glm-4.7-flash` (function calling, 131k de contexto).
+O modelo padrão é `@cf/openai/gpt-oss-20b` (function calling, reasoning, 128k de contexto).
 Pode ser trocado pela variável `MODEL` no `wrangler.toml` ou por `wrangler secret put MODEL`.

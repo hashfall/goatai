@@ -190,6 +190,33 @@ function pageSnapshot() {
     };
 }
 
+function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTabLoad(tabId: number, timeout = 6000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+        try {
+            const current = await browser.tabs.get(tabId);
+            if (current.status === 'complete') {
+                await sleep(200);
+                return;
+            }
+        } catch {
+            return;
+        }
+        await sleep(150);
+    }
+}
+
+async function waitAfterAction(previousTabId: number) {
+    await sleep(250);
+    const [active] = await browser.tabs.query({ active: true, currentWindow: true });
+    const target = active?.id && active.id !== previousTabId ? active.id : previousTabId;
+    await waitForTabLoad(target);
+}
+
 export async function runTool(name: string, args: Record<string, any>): Promise<unknown> {
     if (name === 'list_tabs') {
         const tabs = await browser.tabs.query({});
@@ -218,7 +245,7 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
                 throw new Error('Apenas URLs http/https são permitidas');
             }
             await browser.tabs.update(tab.id, { url: url.href });
-            await new Promise((resolve) => setTimeout(resolve, 600));
+            await waitAfterAction(tab.id);
             return { ok: true, url: url.href };
         }
 
@@ -238,7 +265,7 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
                     return { ok: true, tag: el.tagName.toLowerCase() };
                 })()`,
             );
-            await new Promise((resolve) => setTimeout(resolve, 300));
+            await waitAfterAction(tab.id);
             return result;
         }
 
@@ -274,6 +301,10 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
                     return { ok: true };
                 })()`,
             );
+            if (args.submit) {
+                await waitAfterAction(tab.id);
+            }
+            return { ok: true };
         }
 
         case 'scroll': {
@@ -290,12 +321,12 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
 
         case 'go_back':
             await browser.tabs.goBack(tab.id);
-            await new Promise((resolve) => setTimeout(resolve, 400));
+            await waitAfterAction(tab.id);
             return { ok: true };
 
         case 'go_forward':
             await browser.tabs.goForward(tab.id);
-            await new Promise((resolve) => setTimeout(resolve, 400));
+            await waitAfterAction(tab.id);
             return { ok: true };
 
         default:

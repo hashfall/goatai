@@ -4,7 +4,7 @@
     const { t } = useI18n();
 
     const DEFAULT_ENDPOINT = 'https://goatai-agent.goatai-agent.workers.dev/chat';
-    const DEFAULT_MODEL = '@cf/zai-org/glm-4.7-flash';
+    const DEFAULT_MODEL = '@cf/openai/gpt-oss-20b';
 
     const endpoint = ref(DEFAULT_ENDPOINT);
     const model = ref(DEFAULT_MODEL);

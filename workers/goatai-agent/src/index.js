@@ -1,4 +1,14 @@
-const MODEL = '@cf/zai-org/glm-4.7-flash';
+const DEFAULT_MODEL = '@cf/openai/gpt-oss-20b';
+
+// Modelos liberados para este Worker. GLM-5.3 exige Workers Paid.
+const ALLOWED_MODELS = new Set([
+    '@cf/openai/gpt-oss-20b',
+    '@cf/openai/gpt-oss-120b',
+    '@cf/zai-org/glm-4.7-flash',
+    '@cf/zai-org/glm-5.3',
+    '@cf/meta/llama-4-scout-17b-16e-instruct',
+    '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+]);
 
 const SYSTEM_PROMPT = `Você é o Goatai, o assistente de IA integrado ao navegador do usuário.
 Responda no idioma do usuário (padrão: português do Brasil).
@@ -12,7 +22,10 @@ Regras de uso das ferramentas:
 - Antes de ações destrutivas ou com efeito real (comprar, excluir, enviar, publicar),
   peça confirmação ao usuário.
 - Use navigate apenas para URLs http/https.
-- Se uma ferramenta falhar, explique o erro e tente outra abordagem.`;
+- Se uma ferramenta falhar, explique o erro e tente outra abordagem.
+- Não repita a mesma ferramenta com os mesmos argumentos. Se já tem informação suficiente,
+  pare de chamar ferramentas e responda ao usuário.
+- Quando estiver perto do limite de passos, priorize concluir com o que já descobriu.`;
 
 const MAX_MESSAGES = 40;
 const MAX_CONTENT = 20000;
@@ -117,7 +130,11 @@ export default {
         }
 
         if (request.method === 'GET' && url.pathname === '/health') {
-            return json({ ok: true, model: env.MODEL ?? MODEL });
+            return json({
+                ok: true,
+                model: env.MODEL ?? DEFAULT_MODEL,
+                models: [...ALLOWED_MODELS],
+            });
         }
 
         if (request.method !== 'POST' || url.pathname !== '/chat') {
@@ -145,14 +162,26 @@ export default {
             ? `${SYSTEM_PROMPT}\n\n## Instruções locais (AGENTS.md)\n${localSystem}`
             : SYSTEM_PROMPT;
         const tools = sanitizeTools(body?.tools);
-        const model = env.MODEL ?? MODEL;
+        const requestedModel =
+            typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : (env.MODEL ?? DEFAULT_MODEL);
+        if (!ALLOWED_MODELS.has(requestedModel)) {
+            return json(
+                {
+                    error: 'model_not_allowed',
+                    message: `Modelo não permitido: ${requestedModel}`,
+                    models: [...ALLOWED_MODELS],
+                },
+                400,
+            );
+        }
+        const model = requestedModel;
+        const wantsStream = body?.stream !== false && !tools;
 
         try {
-            if (tools) {
+            if (!wantsStream) {
                 const result = await env.AI.run(model, {
                     messages: [{ role: 'system', content: system }, ...messages],
-                    tools,
-                    tool_choice: 'auto',
+                    ...(tools ? { tools, tool_choice: 'auto' } : {}),
                     stream: false,
                     max_tokens: 2048,
                 });

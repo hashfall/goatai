@@ -95,18 +95,15 @@ export function createAgentTransport(agent: AgentConfig, system = ''): ChatTrans
 
             const history: any[] = messages.map(({ role, content }) => ({ role, content }));
 
-            for (let step = 0; step < 8; step++) {
-                if (signal.aborted) {
-                    return;
-                }
-
+            const request = async (useTools: boolean, extraSystem = '') => {
                 const response = await fetch(agent.endpoint, {
                     method: 'POST',
                     headers,
                     body: JSON.stringify({
                         messages: history,
-                        system,
-                        tools: AGENT_TOOLS,
+                        system: extraSystem ? `${system}\n\n${extraSystem}` : system,
+                        model: agent.model,
+                        ...(useTools ? { tools: AGENT_TOOLS } : {}),
                         stream: false,
                     }),
                     signal,
@@ -123,13 +120,32 @@ export function createAgentTransport(agent: AgentConfig, system = ''): ChatTrans
                     payload?.result?.choices?.[0]?.message ??
                     payload?.choices?.[0]?.message ??
                     (payload?.response ? { role: 'assistant', content: payload.response } : null);
-
                 if (!message) {
                     throw new Error('Agent returned an invalid response');
                 }
+                return message;
+            };
 
+            const MAX_STEPS = 16;
+            for (let step = 0; step < MAX_STEPS; step++) {
+                if (signal.aborted) {
+                    return;
+                }
+
+                const remaining = MAX_STEPS - step;
+                const useTools = remaining > 1;
+                let extraSystem = '';
+                if (!useTools) {
+                    extraSystem =
+                        'Você atingiu o limite de passos de ferramentas. Não chame mais ferramentas; responda com o que já descobriu e diga o que ficou pendente.';
+                } else if (remaining <= 4) {
+                    extraSystem = `Restam ${remaining} passos. Evite repetir a mesma ferramenta com os mesmos argumentos e conclua assim que possível.`;
+                }
+
+                const message = await request(useTools, extraSystem);
                 const toolCalls: any[] = message.tool_calls ?? message.toolCalls ?? [];
-                if (toolCalls.length > 0) {
+
+                if (useTools && toolCalls.length > 0) {
                     history.push({
                         role: 'assistant',
                         content: message.content ?? '',
@@ -159,7 +175,7 @@ export function createAgentTransport(agent: AgentConfig, system = ''): ChatTrans
 
                 const content = String(message.content ?? message.response ?? '').trim();
                 if (!content) {
-                    throw new Error('Agent returned an empty response');
+                    throw new Error('O agente não retornou uma resposta final');
                 }
                 for (let index = 0; index < content.length; index += 24) {
                     if (signal.aborted) {

@@ -34,7 +34,10 @@ Implementado e validado:
 - Leitura do `agents.json` no profile global via experiment API
   `browser.firedragon.getAgentsConfig()`.
 - Transporte real para um Worker no Cloudflare com Workers AI
-  (`@cf/zai-org/glm-4.7-flash`), streaming SSE e token de acesso.
+  (`@cf/openai/gpt-oss-20b` como padrão), streaming SSE e token de acesso.
+- Modelo configurável em Settings → IA e enviado por requisição; o Worker valida contra
+  uma allowlist (`gpt-oss-20b`, `gpt-oss-120b`, `glm-4.7-flash`, `glm-5.3` pago,
+  `llama-4-scout`, `llama-3.3-70b`).
 - Teste ponta a ponta: painel conectado ao Worker, mensagem enviada e resposta
   “Conectado” recebida no navegador.
 - Ferramentas de navegador no agente: `list_tabs`, `get_page`, `navigate`, `click`,
@@ -56,10 +59,10 @@ Artefato de build validado:
 
 ```
 .dist/firedragon-v13.13.2.linux-x64.tar.xz   139 MB
-sha256: eb5eb12555a518f07fd87c8bc790975068ce7315ed19a273d1b3173b326db65c
+sha256: d9183abc6d7ad5eac9c7b6dde52ecac3c1930d444dcaf69e910aed263fc56c7b
 
 .dist/firedragon-v13.13.2.win32-x64.zip      223 MB
-sha256: 7a060ecf14e922a7b0dc81a1727b83a8e085337b4f6d127c298c112520097ba4
+sha256: 4e390cce09469d03bc96d968791f62b79e823bb2390ab87219de2eb5392f8919
 ```
 
 ---
@@ -322,7 +325,7 @@ Resultado:
 
 ```
 .dist/firedragon-v13.13.2.win32-x64.zip   223 MB
-sha256: 7a060ecf14e922a7b0dc81a1727b83a8e085337b4f6d127c298c112520097ba4
+sha256: 4e390cce09469d03bc96d968791f62b79e823bb2390ab87219de2eb5392f8919
 ```
 
 Validação feita:
@@ -391,7 +394,9 @@ Observações:
 
 - Código: `workers/goatai-agent/`.
 - URL de produção: `https://goatai-agent.goatai-agent.workers.dev`.
-- Modelo: `@cf/zai-org/glm-4.7-flash` (Workers AI, function calling, 131k de contexto).
+- Modelo padrão: `@cf/openai/gpt-oss-20b` (Workers AI, function calling, reasoning,
+  128k de contexto). `glm-4.7-flash` continua disponível como fallback mais barato.
+  `@cf/zai-org/glm-5.3` (o GLM “normal”) exige Workers Paid.
 - Endpoints:
   - `GET /health` → `{ ok: true, model }` (sem autenticação).
   - `POST /chat` → body `{ messages: [{ role, content }] }`; exige
@@ -437,7 +442,7 @@ Formato usado:
     "goatai": {
       "provider": "cloudflare",
       "endpoint": "https://goatai-agent.goatai-agent.workers.dev/chat",
-      "model": "@cf/zai-org/glm-4.7-flash",
+      "model": "@cf/openai/gpt-oss-20b",
       "token": "<AGENT_TOKEN>"
     }
   }
@@ -502,7 +507,9 @@ Como funciona:
 2. O Worker chama o Workers AI com `tool_choice: 'auto'` e devolve a mensagem.
 3. Se houver `tool_calls`, o painel executa localmente via `browser.tabs` /
    `browser.tabs.executeScript`, devolve mensagens `role: 'tool'` e repete.
-4. O limite é 8 passos; o conteúdo final é fatiado no stream da UI.
+4. O limite é 16 passos. Nos últimos passos o painel avisa o modelo e, no último, faz uma
+   chamada **sem ferramentas** para ele resumir o que descobriu em vez de estourar com
+   “limite de passos”. O conteúdo final é fatiado no stream da UI.
 
 Permissões: `tabs` e `<all_urls>` além das permissões de host do Worker.
 
@@ -644,7 +651,9 @@ python3 scripts/patch-windows-build.py
 
 ### Cloudflare
 
-1. Modelo escolhido: `@cf/zai-org/glm-4.7-flash` (function calling, 131k de contexto).
+1. Modelo inicial: `@cf/zai-org/glm-4.7-flash` (function calling, 131k de contexto).
+   Depois trocado para `@cf/openai/gpt-oss-20b` por qualidade de tool calling; GLM-4.7
+   “normal” não existe no Workers AI e o GLM-5.3 é pago.
 2. Criado o Worker `workers/goatai-agent` com binding `env.AI`, CORS e autenticação por
    token.
 3. Login do Wrangler feito com `wrangler login --device` (código curto no navegador,
@@ -656,7 +665,7 @@ python3 scripts/patch-windows-build.py
 8. Primeiro teste mostrou “Not connected” porque `IOUtils` não é mais um módulo no
    Firefox 160; corrigido usando o global `IOUtils.readUTF8`.
 9. Teste final: painel “Connected”, mensagem enviada e resposta “Conectado” recebida do
-   GLM-4.7-Flash via Worker.
+   GLM-4.7-Flash via Worker (depois trocado para gpt-oss-20b).
 10. `/chat` sem token retorna 401; `/health` retorna 200.
 
 ### Ferramentas e Settings (2026-11-25)
@@ -665,8 +674,8 @@ python3 scripts/patch-windows-build.py
    `click`, `type`, `scroll`, `go_back`, `go_forward`.
 2. O Worker passou a aceitar `tools`, `system` e mensagens `role: 'tool'`, com chamada
    não-streaming e retorno JSON `{ message }`.
-3. O painel implementa o loop de tool calling (até 8 passos) e executa as ferramentas via
-   APIs de extensão.
+3. O painel implementa o loop de tool calling (até 16 passos, com finalização sem
+   ferramentas no último) e executa as ferramentas via APIs de extensão.
 4. Criada a página `Settings → IA` com endpoint/modelo/token e upload/edição do
    `AGENTS.md`.
 5. Adicionadas as experiment APIs `saveAgentsConfig`, `getAgentsMd`, `saveAgentsMd`.
@@ -684,6 +693,23 @@ python3 scripts/patch-windows-build.py
 3. O botão alterna `firedragon.ai.panel.open` e sincroniza `checked`/`aria-pressed` com a
    pref; também abre/fecha pelo menu Exibir e Ctrl+Alt+A.
 4. Testado no build: botão aparece à esquerda do hambúrguer e oculta/mostra o painel.
+
+### Modelo e limite de passos (2026-11-25)
+
+1. Testado que não existe `glm-4.7` normal no Workers AI; só `glm-4.7-flash` (grátis) e
+   `glm-5.3` (pago).
+2. Comparado tool calling de `gpt-oss-20b`, `llama-4-scout` e `llama-3.3-70b`; todos
+   completaram o fluxo básico. `gpt-oss-20b` foi escolhido como padrão por qualidade e
+   custo no Free.
+3. O modelo agora é escolhido em Settings → IA, enviado pelo painel no body e validado
+   pelo Worker contra uma allowlist; `glm-5.3` exige Workers Paid.
+4. Loop aumentado para 16 passos, com aviso nos últimos passos e uma chamada final sem
+   ferramentas para resumir em vez de retornar “limite de passos”.
+5. `navigate`, `click`, `type` com submit e histórico agora aguardam o carregamento da aba
+   antes de devolver o resultado ao modelo.
+6. Teste real com gpt-oss-20b: “Pesquise no DuckDuckGo por Goatai browser e me diga o
+   primeiro resultado” → navegou, digitou, enviou a busca, leu os resultados e respondeu
+   sem estourar o limite.
 
 ### Windows (2026-11-25)
 
