@@ -32,8 +32,17 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'get_page',
             description:
-                'Lê a aba ativa: retorna URL, título, texto visível e elementos interativos com refs. Use os refs em click/type. Chame antes de agir na página.',
+                'Lê a aba ativa: URL, título, texto, posição de scroll e elementos interativos com refs. Use os refs em click/type e find_text para localizar trechos.',
             parameters: object({ tab_id: number }),
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'find_text',
+            description:
+                'Procura um texto na aba, rola até a primeira ocorrência e retorna até 5 trechos com contexto. Use antes de rolar cegamente em documentos longos.',
+            parameters: object({ query: string, tab_id: number }, ['query']),
         },
     },
     {
@@ -68,14 +77,16 @@ export const AGENT_TOOLS: AgentTool[] = [
         type: 'function',
         function: {
             name: 'scroll',
-            description: 'Rola a página para cima ou para baixo.',
+            description:
+                'Rola a página ou o container rolável principal (funciona em docs com div overflow). Retorna posição, altura e se chegou ao fim. Use to=top/bottom para ir direto.',
             parameters: object(
                 {
                     direction: { type: 'string', enum: ['up', 'down'] },
+                    to: { type: 'string', enum: ['top', 'bottom'] },
                     amount: number,
                     tab_id: number,
                 },
-                ['direction'],
+                [],
             ),
         },
     },
@@ -181,10 +192,18 @@ function pageSnapshot() {
         .trim()
         .slice(0, 9000);
 
+    const scroller = document.scrollingElement || document.documentElement;
     return {
         url: location.href,
         title: document.title,
         selected: (window.getSelection()?.toString() || '').slice(0, 2000),
+        scroll: {
+            y: Math.round(scroller.scrollTop),
+            height: scroller.scrollHeight,
+            viewport: scroller.clientHeight,
+            atTop: scroller.scrollTop <= 1,
+            atBottom: scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2,
+        },
         text,
         elements,
     };
@@ -217,6 +236,116 @@ async function waitAfterAction(previousTabId: number) {
     await waitForTabLoad(target);
 }
 
+function scrollPage(direction: string, to: string, amount: number) {
+    const candidates = [
+        document.scrollingElement,
+        document.documentElement,
+        document.body,
+        ...document.querySelectorAll('main, article, section, div'),
+    ];
+    let best: Element | null = null;
+    let bestScore = -1;
+    for (const element of candidates) {
+        if (!element) {
+            continue;
+        }
+        const style = getComputedStyle(element);
+        const isRoot = element === document.scrollingElement || element === document.documentElement;
+        if (!isRoot && !/(auto|scroll|overlay)/.test(style.overflowY)) {
+            continue;
+        }
+        if (element.scrollHeight <= element.clientHeight + 4) {
+            continue;
+        }
+        const rect = element.getBoundingClientRect();
+        if (rect.width < 80 || rect.height < 80) {
+            continue;
+        }
+        const score = element.clientHeight * 1000 + Math.min(element.scrollHeight, 1000000);
+        if (score > bestScore) {
+            bestScore = score;
+            best = element;
+        }
+    }
+    if (!best) {
+        return { ok: false, error: 'no_scrollable_container' };
+    }
+    const before = best.scrollTop;
+    if (to === 'bottom') {
+        best.scrollTop = best.scrollHeight;
+    } else if (to === 'top') {
+        best.scrollTop = 0;
+    } else {
+        best.scrollBy({ top: direction === 'up' ? -amount : amount, behavior: 'auto' });
+    }
+    const after = best.scrollTop;
+    const className =
+        typeof best.className === 'string' && best.className.trim()
+            ? `.${best.className.trim().split(/\s+/).slice(0, 2).join('.')}`
+            : '';
+    return {
+        ok: true,
+        direction,
+        to: to || undefined,
+        container:
+            best === document.scrollingElement
+                ? 'window'
+                : `${best.tagName.toLowerCase()}${best.id ? `#${best.id}` : ''}${className}`,
+        before: Math.round(before),
+        after: Math.round(after),
+        height: best.scrollHeight,
+        viewport: best.clientHeight,
+        atTop: after <= 1,
+        atBottom: after + best.clientHeight >= best.scrollHeight - 2,
+    };
+}
+
+function findText(query: string) {
+    const needle = String(query || '')
+        .toLowerCase()
+        .slice(0, 200);
+    if (!needle) {
+        return { found: false, error: 'empty_query', matches: [] };
+    }
+    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+    const matches: { snippet: string; tag: string }[] = [];
+    let first: Element | null = null;
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+        const text = node.nodeValue || '';
+        const index = text.toLowerCase().indexOf(needle);
+        if (index === -1) {
+            continue;
+        }
+        const parent = node.parentElement;
+        if (!parent || parent.closest('script,style,noscript,svg')) {
+            continue;
+        }
+        const snippet = text
+            .slice(Math.max(0, index - 100), index + needle.length + 180)
+            .replace(/\s+/g, ' ')
+            .trim();
+        matches.push({ snippet, tag: parent.tagName.toLowerCase() });
+        if (!first) {
+            first = parent;
+        }
+        if (matches.length >= 5) {
+            break;
+        }
+    }
+    if (first) {
+        first.scrollIntoView({ block: 'center', inline: 'center' });
+    }
+    return {
+        found: matches.length > 0,
+        query,
+        count: matches.length,
+        matches,
+        url: location.href,
+        title: document.title,
+    };
+}
+
 export async function runTool(name: string, args: Record<string, any>): Promise<unknown> {
     if (name === 'list_tabs') {
         const tabs = await browser.tabs.query({});
@@ -238,6 +367,9 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
     switch (name) {
         case 'get_page':
             return await execute(tab.id, `(${pageSnapshot.toString()})()`);
+
+        case 'find_text':
+            return await execute(tab.id, `(${findText.toString()})(${JSON.stringify(String(args.query ?? ''))})`);
 
         case 'navigate': {
             const url = new URL(String(args.url));
@@ -309,14 +441,14 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
 
         case 'scroll': {
             const amount = Math.min(Math.max(Number(args.amount) || 600, 50), 5000);
-            const top = String(args.direction) === 'up' ? -amount : amount;
-            return await execute(
+            const direction = String(args.direction ?? 'down');
+            const to = ['top', 'bottom'].includes(String(args.to)) ? String(args.to) : '';
+            const result = await execute(
                 tab.id,
-                `(() => {
-                    window.scrollBy({ top: ${top}, behavior: 'smooth' });
-                    return { ok: true, y: window.scrollY };
-                })()`,
+                `(${scrollPage.toString()})(${JSON.stringify(direction)}, ${JSON.stringify(to)}, ${amount})`,
             );
+            await sleep(300);
+            return result;
         }
 
         case 'go_back':

@@ -40,7 +40,7 @@ Implementado e validado:
   `llama-4-scout`, `llama-3.3-70b`).
 - Teste ponta a ponta: painel conectado ao Worker, mensagem enviada e resposta
   “Conectado” recebida no navegador.
-- Ferramentas de navegador no agente: `list_tabs`, `get_page`, `navigate`, `click`,
+- Ferramentas de navegador no agente: `list_tabs`, `get_page`, `find_text`, `navigate`, `click`,
   `type`, `scroll`, `go_back`, `go_forward`.
 - Página **Settings → IA** para salvar endpoint/modelo/token e carregar/editar/salvar o
   `AGENTS.md` local (upload ou textarea).
@@ -59,10 +59,10 @@ Artefato de build validado:
 
 ```
 .dist/firedragon-v13.13.2.linux-x64.tar.xz   139 MB
-sha256: d9183abc6d7ad5eac9c7b6dde52ecac3c1930d444dcaf69e910aed263fc56c7b
+sha256: d65502db106c505b423d9418e6144d1fcc7075e00010f23862eeb96004895d35
 
 .dist/firedragon-v13.13.2.win32-x64.zip      223 MB
-sha256: 4e390cce09469d03bc96d968791f62b79e823bb2390ab87219de2eb5392f8919
+sha256: 93f5f150b748492542dba2de4094e9bc6e454b14053d27bf24a5238614692d8d
 ```
 
 ---
@@ -325,7 +325,7 @@ Resultado:
 
 ```
 .dist/firedragon-v13.13.2.win32-x64.zip   223 MB
-sha256: 4e390cce09469d03bc96d968791f62b79e823bb2390ab87219de2eb5392f8919
+sha256: 93f5f150b748492542dba2de4094e9bc6e454b14053d27bf24a5238614692d8d
 ```
 
 Validação feita:
@@ -493,12 +493,15 @@ Código: `builtin-addons/ai/utils/tools.ts`; loop de tool calling em
 Ferramentas:
 
 - `list_tabs` — lista abas (id, título, URL, ativa, pinned, audible).
-- `get_page` — URL, título, seleção, texto (até 9.000 chars) e até 120 elementos
-  interativos com `ref` (`g1`, `g2`, …).
+- `get_page` — URL, título, seleção, texto (até 9.000 chars), posição de scroll e até
+  120 elementos interativos com `ref` (`g1`, `g2`, …).
+- `find_text` — procura um termo no DOM, rola até a primeira ocorrência e devolve até 5
+  trechos com contexto. Evita rolagem cega em documentos longos.
 - `navigate` — navega a aba ativa/`tab_id` para URL http/https.
 - `click` — clica em um `ref` retornado por `get_page`.
 - `type` — digita em um `ref`; `submit=true` envia o formulário ou pressiona Enter.
-- `scroll` — rola para cima/baixo.
+- `scroll` — rola a página ou o maior container rolável (div overflow), com `to=top`/
+  `to=bottom`; retorna posição, altura, viewport e `atBottom`.
 - `go_back` / `go_forward` — histórico da aba.
 
 Como funciona:
@@ -710,6 +713,10 @@ python3 scripts/patch-windows-build.py
 6. Teste real com gpt-oss-20b: “Pesquise no DuckDuckGo por Goatai browser e me diga o
    primeiro resultado” → navegou, digitou, enviou a busca, leu os resultados e respondeu
    sem estourar o limite.
+7. Scroll reforçado para containers internos (docs) e adicionada `find_text`, que rola até
+   o termo e retorna trechos. Teste determinístico em página com `div#doc`: detectou o
+   container, chegou a `atBottom=true` e encontrou `FIM-DO-DOCUMENTO`. PDF viewer do
+   Firefox ainda não foi validado separadamente.
 
 ### Windows (2026-11-25)
 
