@@ -405,8 +405,14 @@ Observações:
 - O Worker usa o binding `env.AI` (`[ai] binding = "AI"` no `wrangler.toml`).
 - `max_tokens` atual: 2048. O modelo emite `reasoning_content`; o transporte do painel
   ignora esse campo e mostra apenas `content`.
+- O mesmo código é replicável em qualquer conta Cloudflare: cada conta tem seu próprio
+  `https://goatai-agent.<subdominio-da-conta>.workers.dev` e seu próprio `AGENT_TOKEN`.
+  Deploy de uma segunda conta validado em 2026-11-25:
+  `https://goatai-agent.hashfall00.workers.dev`. Nunca reutilize o token de uma conta na
+  outra; o `agents.json` pode ter uma entrada por conta e o campo `default` escolhe qual
+  o painel usa.
 
-Deploy (a conta já está autenticada no Wrangler neste ambiente):
+Deploy (confira antes com `wrangler whoami` qual conta está autenticada):
 
 ```bash
 cd workers/goatai-agent

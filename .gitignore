@@ -12,3 +12,8 @@
 node_modules
 dist
 .wxt
+
+# segredos locais do agente (nunca commitar)
+agents.json
+.dev.vars
+.token
