@@ -1,5 +1,7 @@
 import { browser } from 'wxt/browser';
 
+declare const exportFunction: any;
+
 function framePath() {
     try {
         const parts: string[] = [];
@@ -137,11 +139,84 @@ function findText(query: string) {
     return { found: matches.length > 0, frame: framePath(), query, matches, url: location.href, title: document.title };
 }
 
-function clickElement(ref: string) {
+let restorePopupCapture: (() => void) | null = null;
+
+/**
+ * GeneXus (SIGA) abre relatórios com window.open, que o bloqueador de popups
+ * descarta quando o clique é sintético. Durante o clique, interceptamos
+ * window.open no mundo da página e devolvemos a URL para a extensão abrir ou
+ * baixar via API, sem depender do gesto do usuário.
+ */
+function installPopupCapture(requestId: string) {
+    if (!requestId) {
+        return;
+    }
+    if (restorePopupCapture) {
+        restorePopupCapture();
+        restorePopupCapture = null;
+    }
+    try {
+        const pageWindow = (window as any).wrappedJSObject;
+        if (!pageWindow || typeof pageWindow.open !== 'function') {
+            return;
+        }
+        const originalOpen = pageWindow.open;
+        const capture = function (url?: any, name?: any, features?: any) {
+            if (!url) {
+                try {
+                    return originalOpen.call(pageWindow, url, name, features);
+                } catch {
+                    return null;
+                }
+            }
+            try {
+                const resolved = new URL(String(url), location.href).href;
+                if (!resolved.startsWith('about:')) {
+                    browser.runtime
+                        .sendMessage({
+                            type: 'goatai:popup',
+                            requestId,
+                            url: resolved,
+                            frame: framePath(),
+                        })
+                        .catch(() => {});
+                    return null;
+                }
+            } catch {
+                // URL inválida: deixa a página seguir o fluxo normal.
+            }
+            try {
+                return originalOpen.call(pageWindow, url, name, features);
+            } catch {
+                return null;
+            }
+        };
+        pageWindow.open = typeof exportFunction === 'function' ? exportFunction(capture, pageWindow) : capture;
+        const restore = () => {
+            try {
+                pageWindow.open = originalOpen;
+            } catch {
+                // ignore
+            }
+        };
+        restorePopupCapture = restore;
+        setTimeout(() => {
+            if (restorePopupCapture === restore) {
+                restore();
+                restorePopupCapture = null;
+            }
+        }, 10000);
+    } catch {
+        // Sem acesso ao mundo da página; segue sem interceptar.
+    }
+}
+
+function clickElement(ref: string, requestId = '') {
     const element = document.querySelector(`[data-goatai-ref="${ref}"]`) as HTMLElement | null;
     if (!element) {
         return { ok: false, error: 'element_not_found' };
     }
+    installPopupCapture(requestId);
     element.scrollIntoView({ block: 'center', inline: 'center' });
     element.focus?.();
     for (const type of ['mouseover', 'mousedown', 'mouseup']) {
@@ -264,7 +339,7 @@ function handle(action: string, args: Record<string, any>) {
         case 'find':
             return findText(String(args.query ?? ''));
         case 'click':
-            return clickElement(String(args.ref ?? ''));
+            return clickElement(String(args.ref ?? ''), String(args.requestId ?? ''));
         case 'hover':
             return hoverElement(String(args.ref ?? ''));
         case 'type':

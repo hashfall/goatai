@@ -62,11 +62,11 @@ Ainda **não** implementado:
 Artefato de build validado:
 
 ```
-.dist/firedragon-v13.13.2.linux-x64.tar.xz   139 MB
-sha256: 3bf46cde183eeab11deaa489b78ea17bf151138862c5577c31c156d1397e0afc
+.dist/firedragon-v13.13.2.linux-x64.tar.xz   141 MB
+sha256: 604c3f5b0ef43a632a3b004c9faef38145022f719e52f4592cc28838d752055a
 
 .dist/firedragon-v13.13.2.win32-x64.zip      223 MB
-sha256: 574caa26c963dd8ea23f3f34a99a67c3865fc080d215cebec648a2d6de4368ef
+sha256: ecc484d589405bb637ec91b7f207169d9534f8d1fe893866b6cd8e00e61c8e3b
 ```
 
 ---
@@ -329,7 +329,7 @@ Resultado:
 
 ```
 .dist/firedragon-v13.13.2.win32-x64.zip   223 MB
-sha256: 574caa26c963dd8ea23f3f34a99a67c3865fc080d215cebec648a2d6de4368ef
+sha256: ecc484d589405bb637ec91b7f207169d9534f8d1fe893866b6cd8e00e61c8e3b
 ```
 
 Validação feita:
@@ -506,7 +506,8 @@ Ferramentas:
   Retorna `matches` e `latest`; para “término das aulas”, a ocorrência do 2º semestre é a
   última e vem com `latest`.
 - `navigate` — navega a aba ativa/`tab_id` para URL http/https.
-- `click` — clica em um `ref` retornado por `get_page`.
+- `click` — clica em um `ref` retornado por `get_page`. Pode devolver `popups` (com
+  `opened.tabId`) e `downloads` (com `filename`).
 - `type` — digita em um `ref`; `submit=true` envia o formulário ou pressiona Enter.
 - `scroll` — rola a página ou o maior container rolável (div overflow), com `to=top`/
   `to=bottom`; retorna posição, altura, viewport e `atBottom`.
@@ -532,7 +533,20 @@ agrega texto/elementos/scroll de todos os frames; `click`, `hover`, `type`, `scr
 O site SIGA usa GeneXus (postbacks `gx.evt.execEvt`) e menus que abrem no `onmouseover`;
 por isso `hover` existe e o `click` dispara também mousedown/mouseup.
 
-Permissões: `tabs` e `<all_urls>` além das permissões de host do Worker.
+Popups e downloads:
+
+- GeneXus abre algumas páginas/relatórios com `window.open`. Durante o clique, o content
+  script intercepta `window.open` no mundo da página (`wrappedJSObject` +
+  `exportFunction`) e devolve a URL ao painel.
+- Se a URL for uma página (ex.: `ACD_AlunoCatalogoUnidade_PES.aspx`), o painel abre em uma
+  aba em segundo plano e retorna `popups[].opened.tabId`; use esse valor como `tab_id` nas
+  próximas chamadas (`get_page`, `click`, `type`).
+- Se for arquivo/relatório (extensões de PDF/ZIP/planilha ou `adoc_download_proc.aspx`),
+  baixa com `browser.downloads.download` e retorna `downloads[].filename`.
+- O `click` também rastreia downloads iniciados por redirecionamento (`location.href`),
+  como o `adoc_download_proc.aspx` do SIGA, e devolve `downloads`.
+
+Permissões: `tabs`, `downloads` e `<all_urls>` além das permissões de host do Worker.
 
 Segurança: o prompt orienta a pedir confirmação antes de ações destrutivas, mas ainda
 **não** existe bloqueio/confirmação técnica na UI. O conteúdo da página é tratado como
@@ -755,6 +769,38 @@ python3 scripts/patch-windows-build.py
    CADASTROS, CURSOS, PESSOAL, MATRICULA, ATESTADOS, etc.; ATESTADOS abre “Atestados e
    Declarações” por hover. O teste ponta a ponta autenticado na build ainda depende de
    fazer login nessa instância.
+
+### Fluxo SIGA ponta a ponta (2026-11-26)
+
+Validado no build com login real e o aluno LUCAS ALEXANDRE DA SILVA (RA 1310772613010):
+
+1. Login no frame `sistema` (`vSIS_USUARIOID`, `vSIS_USUARIOSENHA`, `BTCONFIRMA`).
+2. Perfil “Diretor Serviços Acadêmicos”: clicar no link “Abrir” (tag `a`, primeiro da lista).
+3. Home: hover `PESSOAL` (`td`) → hover `Alunos` (`tr`) → click “Catálogo de Alunos da
+   Unidade” (`tr`).
+4. O catálogo abre em outra aba (`ACD_AlunoCatalogoUnidade_PES.aspx`); usar o `tab_id`
+   retornado em `popups[].opened.tabId`.
+5. No catálogo: digitar o nome em `VFILTER_PRO_PESSOALNOME` e clicar `BTFILTERON`.
+6. Clicar no nome do aluno na grid (tag `a`).
+7. Clicar na aba `CURSOS` (tag `a`; não confundir com o menu superior `td`).
+8. Clicar na linha `Em Curso` (tag `tr`).
+9. Clicar no ícone `BTATESTADOMATRICULASIMPLES`.
+10. Se a assinatura por senha aparecer, preencher `vPRO_PESSOALASSINATURASENHA` e clicar
+    `BUTTON1` (a senha é fornecida pelo operador; não versionar).
+11. O SIGA redireciona para `adoc_download_proc.aspx`; o `click` devolve `downloads` com o
+    PDF.
+
+Resultado: Atestado de Matrícula Simples emitido em 26/11/26 10:40, assinado por ANA
+CAROLINA FERREIRA FELIX; PDF de 114.547 bytes (cópia local em
+`/tmp/opencode/atestado-lucas-build.pdf`, não versionar).
+
+Observações:
+
+- A sessão do SIGA usa cookies de sessão; fechar o navegador encerra o login.
+- Menus GeneXus fecham/reescrevem o DOM ao interagir; chame `get_page` ou use `find`
+  imediatamente antes do clique e use `tab_id` para a aba do catálogo.
+- O teste usou uma página `e2e` temporária (removida do build final); o fluxo real usa as
+  mesmas ferramentas do agente.
 
 ### Windows (2026-11-25)
 

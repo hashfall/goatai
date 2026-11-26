@@ -27,6 +27,7 @@ export default defineConfig({
         permissions: [
             'storage',
             'tabs',
+            'downloads',
             '<all_urls>',
             'https://*.workers.dev/*',
             'http://localhost/*',
