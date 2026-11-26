@@ -46,6 +46,28 @@ const MAX_SYSTEM = 32000;
 const MAX_TOOL_ARGUMENTS = 4000;
 const MAX_TOOLS = 20;
 
+// Erros transitórios do Workers AI (ex.: 3043) são intermitentes; tentar de novo
+// costuma resolver sem incomodar o usuário.
+const TRANSIENT_AI_ERROR =
+    /3043|internal server error|internal error|timeout|timed out|overloaded|capacity|429|500|502|503|504/i;
+
+async function runAIWithRetry(env, model, payload, attempts = 3) {
+    let lastError;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+            return await env.AI.run(model, payload);
+        } catch (error) {
+            lastError = error;
+            const message = error instanceof Error ? error.message : String(error);
+            if (attempt === attempts - 1 || !TRANSIENT_AI_ERROR.test(message)) {
+                throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        }
+    }
+    throw lastError;
+}
+
 function cors(response) {
     response.headers.set('access-control-allow-origin', '*');
     response.headers.set('access-control-allow-methods', 'GET, POST, OPTIONS');
@@ -192,7 +214,7 @@ export default {
 
         try {
             if (!wantsStream) {
-                const result = await env.AI.run(model, {
+                const result = await runAIWithRetry(env, model, {
                     messages: [{ role: 'system', content: system }, ...messages],
                     ...(tools ? { tools, tool_choice: 'auto' } : {}),
                     stream: false,
@@ -209,7 +231,7 @@ export default {
                 return json({ message });
             }
 
-            const stream = await env.AI.run(model, {
+            const stream = await runAIWithRetry(env, model, {
                 messages: [{ role: 'system', content: system }, ...messages],
                 stream: true,
                 max_tokens: 2048,
