@@ -46,6 +46,10 @@ Implementado e validado:
   `AGENTS.md` local (upload ou textarea).
 - O `AGENTS.md` é enviado como instruções de sistema em todas as conversas. Teste real:
   persona “Fatec: …” aplicada e `list_tabs`/`navigate`/`get_page`/`click` executados.
+- Ponte por content script em todos os frames (`entrypoints/frame.ts`), necessária para o SIGA
+  (frameset + GeneXus). `get_page` no SIGA retornou o frame `sistema`/Login.aspx com os
+  campos `sistema:g1` (usuário), `g2` (senha) e `g3` (Entrar).
+- `hover` adicionado para menus GeneXus que abrem com `onmouseover`.
 - Botão na toolbar, imediatamente à esquerda do menu hambúrguer, para mostrar/ocultar o
   painel IA; estado sincronizado com `firedragon.ai.panel.open`.
 
@@ -59,10 +63,10 @@ Artefato de build validado:
 
 ```
 .dist/firedragon-v13.13.2.linux-x64.tar.xz   139 MB
-sha256: 11566d1f516fc361c853c138d77943161cc64e95336a03116f8731efb0bc7e8c
+sha256: 3bf46cde183eeab11deaa489b78ea17bf151138862c5577c31c156d1397e0afc
 
 .dist/firedragon-v13.13.2.win32-x64.zip      223 MB
-sha256: a7419c1b9c6ed07cdea037a5d728c743175ede7c3cc9ac319aa0806016dea98c
+sha256: 574caa26c963dd8ea23f3f34a99a67c3865fc080d215cebec648a2d6de4368ef
 ```
 
 ---
@@ -325,7 +329,7 @@ Resultado:
 
 ```
 .dist/firedragon-v13.13.2.win32-x64.zip   223 MB
-sha256: a7419c1b9c6ed07cdea037a5d728c743175ede7c3cc9ac319aa0806016dea98c
+sha256: 574caa26c963dd8ea23f3f34a99a67c3865fc080d215cebec648a2d6de4368ef
 ```
 
 Validação feita:
@@ -518,11 +522,21 @@ Como funciona:
 
 1. O painel envia `messages`, `system` (AGENTS.md) e `tools` ao Worker.
 2. O Worker chama o Workers AI com `tool_choice: 'auto'` e devolve a mensagem.
-3. Se houver `tool_calls`, o painel executa localmente via `browser.tabs` /
-   `browser.tabs.executeScript`, devolve mensagens `role: 'tool'` e repete.
+3. Se houver `tool_calls`, o painel executa via content script (`entrypoints/frame.ts`)
+   injetado em **todos os frames**; o content script responde por `runtime.sendMessage` e
+   o painel coleta por `requestId`. Isso contorna o frameset do SIGA, onde
+   `tabs.executeScript` falha.
 4. O limite é 16 passos. Nos últimos passos o painel avisa o modelo e, no último, faz uma
    chamada **sem ferramentas** para ele resumir o que descobriu em vez de estourar com
    “limite de passos”. O conteúdo final é fatiado no stream da UI.
+
+Frames: cada frame recebe um caminho estável (`sistema`, `sistema/sistema`,
+`sistema/sistema/W0002Embpage1`); os refs são `frame:gN` (`sistema:g1`). `get_page`
+agrega texto/elementos/scroll de todos os frames; `click`, `hover`, `type`, `scroll` e
+`find_text` mandam a mensagem para todos e só o frame alvo executa.
+
+O site SIGA usa GeneXus (postbacks `gx.evt.execEvt`) e menus que abrem no `onmouseover`;
+por isso `hover` existe e o `click` dispara também mousedown/mouseup.
 
 Permissões: `tabs` e `<all_urls>` além das permissões de host do Worker.
 
@@ -732,6 +746,21 @@ python3 scripts/patch-windows-build.py
    para este PDF). Teste no addon real com o calendário do Drive: 6 páginas, 16.868 chars,
    ocorrências do 1º semestre na página 3 e do 2º na página 6. O modelo leu a página 6 e
    respondeu **14/12/2026**. PDFs escaneados (sem camada de texto) ainda precisam de OCR.
+
+### SIGA / frames (2026-11-26)
+
+1. O SIGA é um frameset (`defaultt.html`) com frames aninhados (`topo`/`sistema`) e
+   GeneXus; `tabs.executeScript`/`scripting.executeScript` falham no frameset.
+2. Implementada ponte por content script em todos os frames, com caminho de frame,
+   mensagens `goatai:frame`/`goatai:frame-result` e coleta por `requestId`.
+3. `hover` adicionado para menus `ThemeClassicMainItem`/`onmouseover`; `click` dispara
+   mousedown/mouseup/click.
+4. Validado no SIGA login: `get_page` retornou `sistema`/Login.aspx com usuário, senha e
+   botão Entrar (`sistema:g1..g3`).
+5. A estrutura autenticada foi inspecionada no navegador do OpenCode: menus CATÁLOGOS,
+   CADASTROS, CURSOS, PESSOAL, MATRICULA, ATESTADOS, etc.; ATESTADOS abre “Atestados e
+   Declarações” por hover. O teste ponta a ponta autenticado na build ainda depende de
+   fazer login nessa instância.
 
 ### Windows (2026-11-25)
 

@@ -34,7 +34,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'get_page',
             description:
-                'Lê a aba ativa: URL, título, texto, posição de scroll e elementos interativos com refs. Use os refs em click/type e find_text para localizar trechos.',
+                'Lê a aba ativa, incluindo todos os frames: URL, título, texto, posição de scroll e elementos interativos com refs (frame:gN). Use os refs em click/type/hover e find_text para localizar trechos.',
             parameters: object({ tab_id: number }),
         },
     },
@@ -43,7 +43,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'find_text',
             description:
-                'Procura um texto na aba, rola até a primeira ocorrência e retorna até 5 trechos com contexto. Use antes de rolar cegamente em documentos longos.',
+                'Procura um texto em todos os frames, rola até a primeira ocorrência e retorna até 5 trechos com contexto por frame. Use antes de rolar cegamente em documentos longos.',
             parameters: object({ query: string, tab_id: number }, ['query']),
         },
     },
@@ -68,7 +68,16 @@ export const AGENT_TOOLS: AgentTool[] = [
         type: 'function',
         function: {
             name: 'click',
-            description: 'Clica em um elemento da aba usando o ref retornado por get_page.',
+            description: 'Clica em um elemento da aba usando o ref retornado por get_page (inclusive frame:gN).',
+            parameters: object({ ref: string, tab_id: number }, ['ref']),
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'hover',
+            description:
+                'Passa o mouse sobre um elemento (para menus que abrem com hover). Use o ref retornado por get_page.',
             parameters: object({ ref: string, tab_id: number }, ['ref']),
         },
     },
@@ -77,7 +86,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'type',
             description:
-                'Digita em um campo da aba usando o ref retornado por get_page. Use submit=true para enviar o formulário ou pressionar Enter.',
+                'Digita em um campo da aba usando o ref retornado por get_page (inclusive frame:gN). Use submit=true para enviar o formulário ou pressionar Enter.',
             parameters: object({ ref: string, text: string, submit: { type: 'boolean' }, tab_id: number }, [
                 'ref',
                 'text',
@@ -89,12 +98,13 @@ export const AGENT_TOOLS: AgentTool[] = [
         function: {
             name: 'scroll',
             description:
-                'Rola a página ou o container rolável principal (funciona em docs com div overflow). Retorna posição, altura e se chegou ao fim. Use to=top/bottom para ir direto.',
+                'Rola a página ou o container rolável principal (funciona em docs com div overflow). Em páginas com frames, informe frame (do get_page) ou ele escolhe o mais rolável. Retorna posição, altura e se chegou ao fim. Use to=top/bottom para ir direto.',
             parameters: object(
                 {
                     direction: { type: 'string', enum: ['up', 'down'] },
                     to: { type: 'string', enum: ['top', 'bottom'] },
                     amount: number,
+                    frame: string,
                     tab_id: number,
                 },
                 [],
@@ -145,17 +155,82 @@ async function resolveTab(tabId?: number) {
     return content;
 }
 
-async function execute(tabId: number, code: string): Promise<any> {
-    const results = await browser.tabs.executeScript(tabId, {
-        code,
-        runAt: 'document_idle',
-    });
-    return results?.[0];
+async function executeAll(tabId: number, code: string): Promise<any[]> {
+    try {
+        const results = await browser.tabs.executeScript(tabId, {
+            code,
+            runAt: 'document_idle',
+            allFrames: true,
+        });
+        return (results ?? []).filter((result) => result !== undefined);
+    } catch (error) {
+        console.warn('[Goatai] executeScript allFrames failed', error);
+        return [];
+    }
 }
 
-function pageSnapshot() {
+function framePath() {
+    try {
+        const parts: string[] = [];
+        let current: Window = window;
+        while (current && current !== current.parent) {
+            let name = current.name || '';
+            if (!name) {
+                try {
+                    name = `#${Array.prototype.indexOf.call(current.parent.frames, current)}`;
+                } catch {
+                    name = '#';
+                }
+            }
+            parts.unshift(String(name).replace(/[^A-Za-z0-9_.-]/g, '_'));
+            current = current.parent;
+        }
+        return parts.length > 0 ? parts.join('/') : 'top';
+    } catch {
+        return 'frame';
+    }
+}
+
+function splitRef(ref: string): { frame: string; local: string } {
+    const separator = ref.lastIndexOf(':');
+    if (separator > 0) {
+        return { frame: ref.slice(0, separator), local: ref.slice(separator + 1) };
+    }
+    return { frame: 'top', local: ref };
+}
+
+function collectFrameResults(
+    tabId: number,
+    action: string,
+    args: Record<string, any> = {},
+    timeout = 600,
+): Promise<any[]> {
+    const requestId = crypto.randomUUID();
+    const results: any[] = [];
+    const listener = (message: any) => {
+        if (message?.type === 'goatai:frame-result' && message.requestId === requestId && message.data) {
+            results.push(message.data);
+        }
+    };
+    browser.runtime.onMessage.addListener(listener);
+    browser.tabs.sendMessage(tabId, { type: 'goatai:frame', requestId, action, args }).catch(() => {});
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            browser.runtime.onMessage.removeListener(listener);
+            resolve(results);
+        }, timeout);
+    });
+}
+
+async function sendFrameAction(tabId: number, action: string, args: Record<string, any>, timeout = 500): Promise<any> {
+    const results = await collectFrameResults(tabId, action, args, timeout);
+    return results.find((result) => result && result.ok !== false) ?? results[0];
+}
+
+function pageSnapshot(frameKey: string) {
+    const frameName = window.name || '';
     const selector =
-        'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [contenteditable="true"]';
+        'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="checkbox"], [role="tab"], [contenteditable="true"], [onclick], [onmousedown], [onmouseover], [onmouseenter], img[onclick]';
     const nodes = Array.from(document.querySelectorAll(selector))
         .filter((element) => {
             const rect = element.getBoundingClientRect();
@@ -174,7 +249,7 @@ function pageSnapshot() {
         .slice(0, 120);
 
     const elements = nodes.map((element, index) => {
-        const ref = `g${index + 1}`;
+        const ref = `${frameKey}:g${index + 1}`;
         element.setAttribute('data-goatai-ref', ref);
         const text = (
             (element as HTMLElement).innerText ||
@@ -207,6 +282,8 @@ function pageSnapshot() {
     const isPdf =
         /(?:drive|docs)\.google\.com\/file\/d\//.test(location.href) || /\.pdf(?:$|[?#])/i.test(location.href);
     return {
+        frame: frameKey,
+        frameName,
         url: location.href,
         title: document.title,
         pdf: isPdf || undefined,
@@ -253,7 +330,7 @@ async function waitAfterAction(previousTabId: number) {
     await waitForTabLoad(target);
 }
 
-function scrollPage(direction: string, to: string, amount: number) {
+function scrollPage(direction: string, to: string, amount: number, frameKey: string) {
     const candidates = [
         document.scrollingElement,
         document.documentElement,
@@ -305,6 +382,7 @@ function scrollPage(direction: string, to: string, amount: number) {
             : '';
     return {
         ok: true,
+        frame: frameKey,
         direction,
         to: to || undefined,
         container:
@@ -320,7 +398,7 @@ function scrollPage(direction: string, to: string, amount: number) {
     };
 }
 
-function findText(query: string) {
+function findText(query: string, frameKey: string) {
     const needle = String(query || '')
         .toLowerCase()
         .slice(0, 200);
@@ -358,6 +436,7 @@ function findText(query: string) {
     }
     return {
         found: matches.length > 0,
+        frame: frameKey,
         query,
         count: matches.length,
         matches,
@@ -444,11 +523,48 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
     }
 
     switch (name) {
-        case 'get_page':
-            return await execute(tab.id, `(${pageSnapshot.toString()})()`);
+        case 'get_page': {
+            const snapshots = await collectFrameResults(tab.id, 'snapshot', {}, 800);
+            const visible = snapshots.filter((snapshot) => snapshot && (snapshot.text || snapshot.elements?.length));
+            const text = visible
+                .map(
+                    (snapshot) =>
+                        `--- frame: ${snapshot.frame} (${snapshot.frameName || snapshot.url}) ---\n${snapshot.text}`,
+                )
+                .join('\n\n')
+                .slice(0, 18000);
+            const elements = visible.flatMap((snapshot) =>
+                (snapshot.elements ?? []).map((element: any) => ({ ...element, frame: snapshot.frame })),
+            );
+            return {
+                url: tab.url,
+                title: visible.find((snapshot) => snapshot.title)?.title ?? tab.title,
+                frames: visible.map(({ text: _text, elements: _elements, ...rest }) => rest),
+                text,
+                elements,
+                scroll: visible.map((snapshot) => ({ frame: snapshot.frame, ...snapshot.scroll })),
+                hint: visible.length
+                    ? undefined
+                    : 'Nenhum conteúdo acessível nos frames. Recarregue a página para ativar o agente ou faça login.',
+            };
+        }
 
-        case 'find_text':
-            return await execute(tab.id, `(${findText.toString()})(${JSON.stringify(String(args.query ?? ''))})`);
+        case 'find_text': {
+            const query = String(args.query ?? '');
+            const results = await collectFrameResults(tab.id, 'find', { query }, 800);
+            const withMatches = results.filter((result) => result?.matches?.length);
+            return {
+                found: withMatches.length > 0,
+                query,
+                count: withMatches.reduce((sum, result) => sum + result.matches.length, 0),
+                frames: withMatches.map((result) => ({
+                    frame: result.frame,
+                    title: result.title,
+                    url: result.url,
+                    matches: result.matches,
+                })),
+            };
+        }
 
         case 'navigate': {
             const url = new URL(String(args.url));
@@ -461,73 +577,71 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
         }
 
         case 'click': {
-            const ref = String(args.ref);
-            if (!/^g\d+$/.test(ref)) {
+            const { frame, local } = splitRef(String(args.ref));
+            if (!/^g\d+$/.test(local)) {
                 throw new Error('ref inválido');
             }
-            const result = await execute(
-                tab.id,
-                `(() => {
-                    const el = document.querySelector('[data-goatai-ref="${ref}"]');
-                    if (!el) return { ok: false, error: 'element_not_found' };
-                    el.scrollIntoView({ block: 'center', inline: 'center' });
-                    el.focus?.();
-                    el.click();
-                    return { ok: true, tag: el.tagName.toLowerCase() };
-                })()`,
-            );
+            const result = await sendFrameAction(tab.id, 'click', { ref: `${frame}:${local}`, frame });
+            if (!result || result.ok === false) {
+                throw new Error(result?.error ?? 'element_not_found');
+            }
             await waitAfterAction(tab.id);
             return result;
         }
 
-        case 'type': {
-            const ref = String(args.ref);
-            if (!/^g\d+$/.test(ref)) {
+        case 'hover': {
+            const { frame, local } = splitRef(String(args.ref));
+            if (!/^g\d+$/.test(local)) {
                 throw new Error('ref inválido');
             }
-            const text = JSON.stringify(String(args.text ?? ''));
-            const submit = args.submit ? 'true' : 'false';
-            return await execute(
-                tab.id,
-                `(() => {
-                    const el = document.querySelector('[data-goatai-ref="${ref}"]');
-                    if (!el) return { ok: false, error: 'element_not_found' };
-                    el.focus();
-                    const proto = el instanceof HTMLTextAreaElement
-                        ? HTMLTextAreaElement.prototype
-                        : HTMLInputElement.prototype;
-                    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-                    if (setter) setter.call(el, ${text});
-                    else el.value = ${text};
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                    if (${submit}) {
-                        const form = el.form || el.closest('form');
-                        if (form?.requestSubmit) form.requestSubmit();
-                        else if (form) form.submit();
-                        else el.dispatchEvent(new KeyboardEvent('keydown', {
-                            key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
-                        }));
-                    }
-                    return { ok: true };
-                })()`,
-            );
+            const result = await sendFrameAction(tab.id, 'hover', { ref: `${frame}:${local}`, frame });
+            if (!result || result.ok === false) {
+                throw new Error(result?.error ?? 'element_not_found');
+            }
+            await sleep(300);
+            return result;
+        }
+
+        case 'type': {
+            const { frame, local } = splitRef(String(args.ref));
+            if (!/^g\d+$/.test(local)) {
+                throw new Error('ref inválido');
+            }
+            const result = await sendFrameAction(tab.id, 'type', {
+                ref: `${frame}:${local}`,
+                frame,
+                text: String(args.text ?? ''),
+                submit: Boolean(args.submit),
+            });
+            if (!result || result.ok === false) {
+                throw new Error(result?.error ?? 'element_not_found');
+            }
             if (args.submit) {
                 await waitAfterAction(tab.id!);
             }
-            return { ok: true };
+            return result;
         }
 
         case 'scroll': {
+            let frame = String(args.frame ?? '');
+            if (!frame) {
+                const snapshots = await collectFrameResults(tab.id, 'snapshot', {}, 800);
+                const best = snapshots
+                    .filter((snapshot) => snapshot?.scroll)
+                    .sort((a, b) => b.scroll.height - b.scroll.viewport - (a.scroll.height - a.scroll.viewport))[0];
+                frame = best?.frame ?? 'top';
+            }
             const amount = Math.min(Math.max(Number(args.amount) || 600, 50), 5000);
             const direction = String(args.direction ?? 'down');
             const to = ['top', 'bottom'].includes(String(args.to)) ? String(args.to) : '';
-            const result = await execute(
-                tab.id,
-                `(${scrollPage.toString()})(${JSON.stringify(direction)}, ${JSON.stringify(to)}, ${amount})`,
-            );
+            const result = await sendFrameAction(tab.id, 'scroll', {
+                frame,
+                direction,
+                to,
+                amount,
+            });
             await sleep(300);
-            return result;
+            return result ?? { ok: false, error: 'frame_unavailable', frame };
         }
 
         case 'go_back':

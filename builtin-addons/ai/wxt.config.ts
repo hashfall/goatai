@@ -32,6 +32,14 @@ export default defineConfig({
             'http://localhost/*',
             'http://127.0.0.1/*',
         ],
+        content_scripts: [
+            {
+                matches: ['<all_urls>'],
+                all_frames: true,
+                run_at: 'document_idle',
+                js: ['frame.js'],
+            },
+        ],
     },
     vite: () => ({
         plugins: [
