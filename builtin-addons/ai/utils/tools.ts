@@ -68,7 +68,8 @@ export const AGENT_TOOLS: AgentTool[] = [
         type: 'function',
         function: {
             name: 'click',
-            description: 'Clica em um elemento da aba usando o ref retornado por get_page (inclusive frame:gN).',
+            description:
+                'Clica em um elemento da aba usando o ref retornado por get_page (inclusive frame:gN). Se abrir popup/aba, o resultado traz popups[].opened.tabId: use esse tab_id nas próximas chamadas. Relatórios baixados aparecem em downloads[].filename.',
             parameters: object({ ref: string, tab_id: number }, ['ref']),
         },
     },
@@ -204,8 +205,8 @@ function collectFrameResults(
     action: string,
     args: Record<string, any> = {},
     timeout = 600,
+    requestId = crypto.randomUUID(),
 ): Promise<any[]> {
-    const requestId = crypto.randomUUID();
     const results: any[] = [];
     const listener = (message: any) => {
         if (message?.type === 'goatai:frame-result' && message.requestId === requestId && message.data) {
@@ -222,9 +223,72 @@ function collectFrameResults(
     });
 }
 
-async function sendFrameAction(tabId: number, action: string, args: Record<string, any>, timeout = 500): Promise<any> {
-    const results = await collectFrameResults(tabId, action, args, timeout);
+async function sendFrameAction(
+    tabId: number,
+    action: string,
+    args: Record<string, any>,
+    timeout = 500,
+    requestId?: string,
+): Promise<any> {
+    const results = await collectFrameResults(tabId, action, args, timeout, requestId);
     return results.find((result) => result && result.ok !== false) ?? results[0];
+}
+
+function isFileUrl(url: URL) {
+    const path = url.pathname.toLowerCase();
+    return (
+        /\.(pdf|zip|csv|xls|xlsx|doc|docx|txt|rtf|odt|ods)$/.test(path) ||
+        /adoc_download_proc|download|export|impress|print|report/.test(path)
+    );
+}
+
+async function openCapturedUrl(url: string) {
+    try {
+        const target = new URL(url);
+        if (!['http:', 'https:'].includes(target.protocol)) {
+            return null;
+        }
+        const downloads = (browser as any).downloads;
+        if (isFileUrl(target) && downloads?.download) {
+            const id = await downloads.download({ url: target.href, saveAs: false });
+            return { via: 'download', id };
+        }
+        const tab = await browser.tabs.create({ url: target.href, active: false });
+        return { via: 'tab', tabId: tab.id };
+    } catch {
+        return null;
+    }
+}
+
+function describeDownload(item: any) {
+    return {
+        id: item.id,
+        filename: item.filename,
+        mime: item.mime,
+        bytes: item.fileSize ?? item.totalBytes,
+        state: item.state,
+        url: item.url,
+    };
+}
+
+function trackDownloads() {
+    const items: any[] = [];
+    const listener = (item: any) => items.push(item);
+    try {
+        (browser as any).downloads?.onCreated?.addListener(listener);
+    } catch {
+        // sem permissão de downloads; segue sem rastrear
+    }
+    return {
+        items,
+        stop: () => {
+            try {
+                (browser as any).downloads?.onCreated?.removeListener(listener);
+            } catch {
+                // ignore
+            }
+        },
+    };
 }
 
 function pageSnapshot(frameKey: string) {
@@ -581,12 +645,48 @@ export async function runTool(name: string, args: Record<string, any>): Promise<
             if (!/^g\d+$/.test(local)) {
                 throw new Error('ref inválido');
             }
-            const result = await sendFrameAction(tab.id, 'click', { ref: `${frame}:${local}`, frame });
-            if (!result || result.ok === false) {
-                throw new Error(result?.error ?? 'element_not_found');
+            const requestId = crypto.randomUUID();
+            const popups: any[] = [];
+            const onPopup = (message: any) => {
+                if (message?.type === 'goatai:popup' && message.requestId === requestId) {
+                    popups.push(message);
+                }
+            };
+            const downloads = trackDownloads();
+            browser.runtime.onMessage.addListener(onPopup);
+            try {
+                const result = await sendFrameAction(
+                    tab.id,
+                    'click',
+                    { ref: `${frame}:${local}`, frame, requestId },
+                    900,
+                    requestId,
+                );
+                if (!result || result.ok === false) {
+                    throw new Error(result?.error ?? 'element_not_found');
+                }
+                await waitAfterAction(tab.id);
+                await sleep(1800);
+                for (const popup of popups) {
+                    const opened = await openCapturedUrl(String(popup.url));
+                    if (opened) {
+                        popup.opened = opened;
+                    }
+                }
+                if (popups.length) {
+                    await sleep(1200);
+                }
+                return {
+                    ...result,
+                    ...(popups.length ? { popups } : {}),
+                    ...(downloads.items.length
+                        ? { downloads: downloads.items.map((item) => describeDownload(item)) }
+                        : {}),
+                };
+            } finally {
+                browser.runtime.onMessage.removeListener(onPopup);
+                downloads.stop();
             }
-            await waitAfterAction(tab.id);
-            return result;
         }
 
         case 'hover': {
